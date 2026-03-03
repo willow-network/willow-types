@@ -58,8 +58,8 @@ pub enum Transaction {
     // Indexing transactions
     /// Register as a blockchain indexer.
     RegisterIndexer(RegisterIndexerTx),
-    /// Submit a single block update from an indexer (with optional GKR proof).
-    BlockIndexUpdate(crate::indexer_node::consensus_submitter::BlockIndexUpdateTx),
+    /// Submit indexed data for a single block (with optional GKR proof).
+    IndexedBlockSubmission(crate::indexer_node::consensus_submitter::IndexedBlockSubmissionTx),
     /// Slash a misbehaving indexer.
     SlashIndexer(SlashIndexerTx),
     /// Collect accumulated query fees.

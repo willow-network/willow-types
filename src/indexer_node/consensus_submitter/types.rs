@@ -182,7 +182,7 @@ pub enum TransactionType {
     /// Historical checkpoint (single submission after full sync, verified via MultiIndexer or TEE)
     HistoricalCheckpoint,
     /// Single block update at chain tip (with optional GKR proof)
-    BlockIndexUpdate,
+    IndexedBlockSubmission,
     AppRegistration,
     IndexerRegistration,
     Other(String),
@@ -216,7 +216,7 @@ pub enum TransactionType {
 /// When the subgrove requires event inclusion verification, consensus verifies
 /// each proof against `block_header.receipts_root`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BlockIndexUpdateTx {
+pub struct IndexedBlockSubmissionTx {
     pub transaction_type: TransactionType,
     /// The indexer's DID
     pub indexer_did: DID,
