@@ -27,11 +27,28 @@ pub struct RegisterIndexerTx {
     pub nonce: u64,
 }
 
+fn default_epoch_length() -> u64 {
+    crate::token::units::DEFAULT_EPOCH_LENGTH
+}
+
+fn default_config_version() -> u8 {
+    1
+}
+
 /// Configuration for indexer requirements and rewards.
 ///
 /// Specifies how many indexers should process this subgrove and
-/// what rewards they receive. Multiple indexers provide redundancy
+/// what rewards they receive per epoch. Multiple indexers provide redundancy
 /// and help ensure data completeness.
+///
+/// ## Epoch-based reward model
+///
+/// Each active indexer earns up to `reward_per_epoch` per epoch, scaled by
+/// their participation ratio (blocks submitted / epoch_length). The drip rate
+/// is constant per indexer, so total app cost = `reward_per_epoch * num_active_indexers`.
+///
+/// Payout requires passing data availability checks — only indexers with
+/// `Active` availability status receive epoch rewards.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IndexerConfig {
     /// Minimum number of indexers required (1-10). Default: 1.
@@ -42,13 +59,25 @@ pub struct IndexerConfig {
     /// More indexers increase redundancy but also cost.
     pub max_indexers: u8,
 
-    /// Reward per block indexed in WILL (smallest unit).
+    /// Reward per epoch per indexer in WILL (smallest unit).
+    /// An indexer with full participation earns this amount each epoch.
     /// Higher rewards attract more indexers to bid on this subgrove.
-    pub reward_per_block: u128,
+    #[serde(alias = "reward_per_block")]
+    pub reward_per_epoch: u128,
+
+    /// Length of an epoch in blocks. Default: 100.
+    #[serde(default = "default_epoch_length")]
+    pub epoch_length: u64,
 
     /// Minimum stake required from each indexer in WILL (smallest unit).
     /// Higher stake requirements increase indexer accountability.
     pub min_indexer_stake: u128,
+
+    /// Config version for migration (0 = legacy per-block, 1 = epoch model).
+    /// When version 0, `reward_per_epoch` (deserialized from `reward_per_block`)
+    /// is multiplied by `epoch_length` via `effective_reward_per_epoch()`.
+    #[serde(default = "default_config_version")]
+    pub config_version: u8,
 }
 
 impl Default for IndexerConfig {
@@ -56,13 +85,31 @@ impl Default for IndexerConfig {
         Self {
             min_indexers: 1,
             max_indexers: 3,
-            reward_per_block: 1_000_000_000_000_000, // 0.001 WILL
+            reward_per_epoch: crate::token::units::DEFAULT_REWARD_PER_EPOCH,
+            epoch_length: crate::token::units::DEFAULT_EPOCH_LENGTH,
             min_indexer_stake: 100_000_000_000_000_000_000_000, // 100k WILL
+            config_version: 1,
         }
     }
 }
 
 impl IndexerConfig {
+    /// Get the effective reward per epoch.
+    ///
+    /// For legacy configs (version 0), the old `reward_per_block` value is stored
+    /// in `reward_per_epoch` via serde alias, so we multiply by `epoch_length`
+    /// to get the equivalent epoch reward.
+    ///
+    /// For version 1+, `reward_per_epoch` is used directly.
+    pub fn effective_reward_per_epoch(&self) -> u128 {
+        if self.config_version == 0 {
+            // Legacy: reward_per_epoch actually contains the old per-block value
+            self.reward_per_epoch * self.epoch_length as u128
+        } else {
+            self.reward_per_epoch
+        }
+    }
+
     /// Validate the indexer configuration.
     pub fn validate(&self) -> Result<(), String> {
         if self.min_indexers == 0 {
@@ -77,8 +124,11 @@ impl IndexerConfig {
         if self.max_indexers > 10 {
             return Err("max_indexers cannot exceed 10".to_string());
         }
-        if self.reward_per_block == 0 {
-            return Err("reward_per_block must be greater than 0".to_string());
+        if self.reward_per_epoch == 0 {
+            return Err("reward_per_epoch must be greater than 0".to_string());
+        }
+        if self.epoch_length == 0 {
+            return Err("epoch_length must be greater than 0".to_string());
         }
         Ok(())
     }
@@ -89,45 +139,55 @@ impl IndexerConfig {
     /// - ConsensusExecution: Validators do transformation work, fewer indexers needed
     /// - IndexerExecution: Sampling-based verification, more indexers for redundancy
     pub fn recommended_for_mode(mode: &ExecutionMode) -> Self {
+        use crate::token::units::{DEFAULT_EPOCH_LENGTH, ONE_MILLI_WILL};
+
         match mode {
             // Consensus execution: validators do the work
             ExecutionMode::ConsensusExecution => Self {
                 min_indexers: 1,
                 max_indexers: 2,
-                reward_per_block: 800_000_000_000_000, // Lower since consensus does transformation
-                min_indexer_stake: 100_000_000_000_000_000_000_000, // 100k WILL
+                reward_per_epoch: 80 * ONE_MILLI_WILL, // 0.08 WILL per epoch
+                epoch_length: DEFAULT_EPOCH_LENGTH,
+                min_indexer_stake: 100_000_000_000_000_000_000_000,
+                config_version: 1,
             },
             // Indexer execution with sampling: multiple indexers for redundancy
             ExecutionMode::IndexerExecution {
                 sampling_rate_percent,
             } => {
                 let redundancy = if *sampling_rate_percent < 10 {
-                    3 // Low sampling needs more redundancy
+                    3
                 } else if *sampling_rate_percent < 30 {
                     2
                 } else {
-                    1 // High sampling rate provides good verification
+                    1
                 };
                 Self {
                     min_indexers: redundancy,
                     max_indexers: redundancy + 2,
-                    reward_per_block: 1_000_000_000_000_000,
+                    reward_per_epoch: 100 * ONE_MILLI_WILL, // 0.1 WILL per epoch
+                    epoch_length: DEFAULT_EPOCH_LENGTH,
                     min_indexer_stake: 100_000_000_000_000_000_000_000,
+                    config_version: 1,
                 }
             }
             // TEE execution: hardware provides trust, fewer indexers needed
             ExecutionMode::TeeExecution { .. } => Self {
                 min_indexers: 1,
                 max_indexers: 2,
-                reward_per_block: 600_000_000_000_000, // Lower since TEE provides instant trust
-                min_indexer_stake: 100_000_000_000_000_000_000_000, // 100k WILL
+                reward_per_epoch: 60 * ONE_MILLI_WILL, // 0.06 WILL per epoch
+                epoch_length: DEFAULT_EPOCH_LENGTH,
+                min_indexer_stake: 100_000_000_000_000_000_000_000,
+                config_version: 1,
             },
             // GKR execution: cryptographic proof, no redundancy needed
             ExecutionMode::GkrExecution => Self {
                 min_indexers: 1,
                 max_indexers: 1,
-                reward_per_block: 1_200_000_000_000_000, // Higher to compensate proof generation cost
-                min_indexer_stake: 100_000_000_000_000_000_000_000, // 100k WILL
+                reward_per_epoch: 120 * ONE_MILLI_WILL, // 0.12 WILL per epoch
+                epoch_length: DEFAULT_EPOCH_LENGTH,
+                min_indexer_stake: 100_000_000_000_000_000_000_000,
+                config_version: 1,
             },
         }
     }
@@ -168,29 +228,21 @@ impl FeeDistributionRates {
     /// the transformation work and validators only sample-verify.
     pub fn for_mode(mode: &ExecutionMode) -> Self {
         match mode {
-            // Consensus execution: validators do the transformation work
-            // Indexer gets 60%, validators get 30% (for transformation), treasury 10%
             ExecutionMode::ConsensusExecution => Self {
                 indexer_percent: 60,
                 validator_percent: 30,
                 treasury_percent: 10,
             },
-            // Indexer execution with sampling: balanced distribution
-            // Indexer gets 70%, validators get 20% (for sampling), treasury 10%
             ExecutionMode::IndexerExecution { .. } => Self {
                 indexer_percent: 70,
                 validator_percent: 20,
                 treasury_percent: 10,
             },
-            // TEE execution: hardware attestation provides trust
-            // Indexer gets 75%, validators get 15% (minimal verification), treasury 10%
             ExecutionMode::TeeExecution { .. } => Self {
                 indexer_percent: 75,
                 validator_percent: 15,
                 treasury_percent: 10,
             },
-            // GKR execution: cryptographic proof provides trust
-            // Indexer gets 85% (transformation + proof generation), validators get 5% (proof verification only), treasury 10%
             ExecutionMode::GkrExecution => Self {
                 indexer_percent: 85,
                 validator_percent: 5,
