@@ -53,9 +53,6 @@ pub const MIN_VALIDATOR_STAKE: u128 = 10 * ONE_KILO_WILL;
 // Common fee amounts
 // ============================================================================
 
-/// Default reward per block: 0.001 WILL (legacy, use DEFAULT_REWARD_PER_EPOCH)
-pub const DEFAULT_REWARD_PER_BLOCK: u128 = ONE_MILLI_WILL;
-
 /// Default epoch length in blocks.
 pub const DEFAULT_EPOCH_LENGTH: u64 = 100;
 

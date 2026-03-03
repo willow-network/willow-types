@@ -117,21 +117,6 @@ pub enum CheckpointVerification {
         /// Block height at which the challenge window expires.
         challenge_deadline: u64,
     },
-
-    // Legacy variants for serde migration from old format
-    /// Legacy: No independent verification yet (maps to PendingChallenge{deadline:0} -> Trusted).
-    #[serde(rename = "Unverified")]
-    LegacyUnverified,
-    /// Legacy: Verified by N indexers (maps to Trusted).
-    #[serde(rename = "VerifiedBy")]
-    LegacyVerifiedBy(u32),
-    /// Legacy: TEE verified (maps to TeeAttested with deadline 0).
-    #[serde(rename = "TeeVerified")]
-    LegacyTeeVerified {
-        tee_type: crate::tee::TeeType,
-        enclave_hash: Vec<u8>,
-        verified_at: u64,
-    },
 }
 
 impl Default for CheckpointVerification {
@@ -149,7 +134,6 @@ impl CheckpointVerification {
     /// - It is `Trusted`
     /// - It is `PendingChallenge` and the deadline has passed
     /// - It is `TeeAttested` and the deadline has passed
-    /// - It is a legacy `VerifiedBy` or `TeeVerified` variant
     pub fn is_trusted_at(&self, current_block: u64) -> bool {
         match self {
             CheckpointVerification::Trusted => true,
@@ -159,12 +143,6 @@ impl CheckpointVerification {
             CheckpointVerification::TeeAttested {
                 challenge_deadline, ..
             } => current_block >= *challenge_deadline,
-            CheckpointVerification::LegacyVerifiedBy(_) => true,
-            CheckpointVerification::LegacyTeeVerified { .. } => true,
-            CheckpointVerification::LegacyUnverified => {
-                // Legacy unverified with deadline 0 -> immediately trusted
-                true
-            }
             CheckpointVerification::Disputed { .. } => false,
             CheckpointVerification::Invalidated { .. } => false,
         }
@@ -179,25 +157,19 @@ impl CheckpointVerification {
             CheckpointVerification::TeeAttested {
                 challenge_deadline, ..
             } => current_block < *challenge_deadline,
-            // Legacy variants are already past their challenge window
             _ => false,
         }
     }
 
     /// Returns true if this is a TEE-verified checkpoint.
     pub fn is_tee_verified(&self) -> bool {
-        matches!(
-            self,
-            CheckpointVerification::TeeAttested { .. }
-                | CheckpointVerification::LegacyTeeVerified { .. }
-        )
+        matches!(self, CheckpointVerification::TeeAttested { .. })
     }
 
     /// Get the TEE type if this is TEE verified.
     pub fn tee_type(&self) -> Option<crate::tee::TeeType> {
         match self {
             CheckpointVerification::TeeAttested { tee_type, .. } => Some(*tee_type),
-            CheckpointVerification::LegacyTeeVerified { tee_type, .. } => Some(*tee_type),
             _ => None,
         }
     }
@@ -206,7 +178,6 @@ impl CheckpointVerification {
     pub fn enclave_hash(&self) -> Option<&[u8]> {
         match self {
             CheckpointVerification::TeeAttested { enclave_hash, .. } => Some(enclave_hash),
-            CheckpointVerification::LegacyTeeVerified { enclave_hash, .. } => Some(enclave_hash),
             _ => None,
         }
     }

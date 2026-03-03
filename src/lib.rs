@@ -22,12 +22,3 @@ pub use token::{Balance, FeeSchedule, ReadPricing, TokenState};
 pub use tee::{TeeType, TeeAttestation, TeeCapability, TeeVerificationError};
 pub use reputation::{IndexerReputation, ReputationTier, IndexerProfile, OperatorEntity};
 pub use consensus::transactions::Transaction;
-
-/// Legacy error type alias for backward compatibility.
-pub type Error = Box<dyn std::error::Error + Send + Sync>;
-
-/// Legacy result type alias for backward compatibility.
-pub type Result<T> = std::result::Result<T, Error>;
-
-// Typed result alias
-pub use error::Result as WillowResult;

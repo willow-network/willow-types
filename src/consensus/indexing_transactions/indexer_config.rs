@@ -31,10 +31,6 @@ fn default_epoch_length() -> u64 {
     crate::token::units::DEFAULT_EPOCH_LENGTH
 }
 
-fn default_config_version() -> u8 {
-    1
-}
-
 /// Configuration for indexer requirements and rewards.
 ///
 /// Specifies how many indexers should process this subgrove and
@@ -62,7 +58,6 @@ pub struct IndexerConfig {
     /// Reward per epoch per indexer in WILL (smallest unit).
     /// An indexer with full participation earns this amount each epoch.
     /// Higher rewards attract more indexers to bid on this subgrove.
-    #[serde(alias = "reward_per_block")]
     pub reward_per_epoch: u128,
 
     /// Length of an epoch in blocks. Default: 100.
@@ -72,12 +67,6 @@ pub struct IndexerConfig {
     /// Minimum stake required from each indexer in WILL (smallest unit).
     /// Higher stake requirements increase indexer accountability.
     pub min_indexer_stake: u128,
-
-    /// Config version for migration (0 = legacy per-block, 1 = epoch model).
-    /// When version 0, `reward_per_epoch` (deserialized from `reward_per_block`)
-    /// is multiplied by `epoch_length` via `effective_reward_per_epoch()`.
-    #[serde(default = "default_config_version")]
-    pub config_version: u8,
 }
 
 impl Default for IndexerConfig {
@@ -88,28 +77,11 @@ impl Default for IndexerConfig {
             reward_per_epoch: crate::token::units::DEFAULT_REWARD_PER_EPOCH,
             epoch_length: crate::token::units::DEFAULT_EPOCH_LENGTH,
             min_indexer_stake: 100_000_000_000_000_000_000_000, // 100k WILL
-            config_version: 1,
         }
     }
 }
 
 impl IndexerConfig {
-    /// Get the effective reward per epoch.
-    ///
-    /// For legacy configs (version 0), the old `reward_per_block` value is stored
-    /// in `reward_per_epoch` via serde alias, so we multiply by `epoch_length`
-    /// to get the equivalent epoch reward.
-    ///
-    /// For version 1+, `reward_per_epoch` is used directly.
-    pub fn effective_reward_per_epoch(&self) -> u128 {
-        if self.config_version == 0 {
-            // Legacy: reward_per_epoch actually contains the old per-block value
-            self.reward_per_epoch * self.epoch_length as u128
-        } else {
-            self.reward_per_epoch
-        }
-    }
-
     /// Validate the indexer configuration.
     pub fn validate(&self) -> Result<(), String> {
         if self.min_indexers == 0 {
@@ -149,7 +121,6 @@ impl IndexerConfig {
                 reward_per_epoch: 80 * ONE_MILLI_WILL, // 0.08 WILL per epoch
                 epoch_length: DEFAULT_EPOCH_LENGTH,
                 min_indexer_stake: 100_000_000_000_000_000_000_000,
-                config_version: 1,
             },
             // Indexer execution with sampling: multiple indexers for redundancy
             ExecutionMode::IndexerExecution {
@@ -168,8 +139,7 @@ impl IndexerConfig {
                     reward_per_epoch: 100 * ONE_MILLI_WILL, // 0.1 WILL per epoch
                     epoch_length: DEFAULT_EPOCH_LENGTH,
                     min_indexer_stake: 100_000_000_000_000_000_000_000,
-                    config_version: 1,
-                }
+                    }
             }
             // TEE execution: hardware provides trust, fewer indexers needed
             ExecutionMode::TeeExecution { .. } => Self {
@@ -178,7 +148,6 @@ impl IndexerConfig {
                 reward_per_epoch: 60 * ONE_MILLI_WILL, // 0.06 WILL per epoch
                 epoch_length: DEFAULT_EPOCH_LENGTH,
                 min_indexer_stake: 100_000_000_000_000_000_000_000,
-                config_version: 1,
             },
             // GKR execution: cryptographic proof, no redundancy needed
             ExecutionMode::GkrExecution => Self {
@@ -187,7 +156,6 @@ impl IndexerConfig {
                 reward_per_epoch: 120 * ONE_MILLI_WILL, // 0.12 WILL per epoch
                 epoch_length: DEFAULT_EPOCH_LENGTH,
                 min_indexer_stake: 100_000_000_000_000_000_000_000,
-                config_version: 1,
             },
         }
     }
