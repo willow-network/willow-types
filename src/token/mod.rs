@@ -1,0 +1,645 @@
+//! Core types for the WILL token system.
+//!
+//! Defines token state, balances, transfers, staking info, fee schedules,
+//! bridge operations, and reward distribution structures.
+
+pub mod units;
+
+use serde::{Deserialize, Serialize};
+
+/// Token name.
+pub const TOKEN_NAME: &str = "Willow Token";
+/// Token symbol.
+pub const TOKEN_SYMBOL: &str = "WILL";
+/// Number of decimal places (18, like Ethereum).
+pub const TOKEN_DECIMALS: u8 = 18;
+/// Initial token supply (1 billion WILL).
+pub const INITIAL_SUPPLY: u128 = 1_000_000_000 * 10u128.pow(TOKEN_DECIMALS as u32);
+/// DID of the protocol treasury.
+pub const TREASURY_DID: &str = "did:willow:treasury";
+
+/// Global token state.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenState {
+    /// Token name.
+    pub name: String,
+    /// Token symbol.
+    pub symbol: String,
+    /// Decimal places.
+    pub decimals: u8,
+    /// Maximum supply.
+    pub total_supply: u128,
+    /// Tokens minted so far.
+    pub minted_supply: u128,
+    /// Ethereum bridge contract address.
+    pub bridge_address: Option<String>,
+}
+
+/// Account balance with available, staked, and locked amounts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Balance {
+    /// Account DID.
+    pub did: String,
+    /// Available (spendable) balance.
+    pub available: u128,
+    /// Amount staked with validators.
+    pub staked: u128,
+    /// Amount locked (unbonding or bridge).
+    pub locked: u128,
+}
+
+/// Token transfer record.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Transfer {
+    /// Sender DID.
+    pub from: String,
+    /// Recipient DID.
+    pub to: String,
+    /// Transfer amount.
+    pub amount: u128,
+    /// Transfer fee paid.
+    pub fee: u128,
+    /// Optional memo.
+    pub memo: Option<String>,
+    /// Unix timestamp.
+    pub timestamp: u64,
+}
+
+/// Staking position information.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StakeInfo {
+    /// Validator receiving the stake.
+    pub validator_did: String,
+    /// Staked amount.
+    pub amount: u128,
+    /// When staking began.
+    pub start_timestamp: u64,
+    /// When unbonding started (if unbonding).
+    pub unbonding_timestamp: Option<u64>,
+    /// Total rewards earned.
+    pub rewards_earned: u128,
+}
+
+/// Fee schedule defining costs for various operations.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeeSchedule {
+    /// Fee to register a DID (identity).
+    pub did_registration: u128,
+    /// Fee to register an application.
+    pub app_registration: u128,
+    /// Fee to register a subgrove.
+    pub subgrove_registration: u128,
+    /// Fee per KB of data written.
+    pub data_write_per_kb: u128,
+    /// Fee to generate a proof.
+    pub proof_generation: u128,
+    /// Fee per query after rate limit.
+    pub query_after_limit: u128,
+    /// Transfer fee in basis points (1/10000).
+    pub transfer_fee_percentage: u32,
+}
+
+impl Default for FeeSchedule {
+    fn default() -> Self {
+        Self {
+            did_registration: 10u128.pow(TOKEN_DECIMALS as u32), // 1 WILL - low enough to not be prohibitive, high enough to deter spam
+            app_registration: 1000 * 10u128.pow(TOKEN_DECIMALS as u32), // 1000 WILL
+            subgrove_registration: 100 * 10u128.pow(TOKEN_DECIMALS as u32), // 100 WILL
+            data_write_per_kb: 10u128.pow(TOKEN_DECIMALS as u32 - 1), // 0.1 WILL per KB
+            proof_generation: 10u128.pow(TOKEN_DECIMALS as u32 - 2), // 0.01 WILL
+            query_after_limit: 10u128.pow(TOKEN_DECIMALS as u32 - 3), // 0.001 WILL per query
+            transfer_fee_percentage: 10,                         // 0.1%
+        }
+    }
+}
+
+/// Application funding account for paying storage/query fees.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppFunding {
+    /// Application ID.
+    pub app_id: String,
+    /// Current balance available.
+    pub balance: u128,
+    /// Total amount spent.
+    pub total_spent: u128,
+    /// Last funding timestamp.
+    pub last_funded: u64,
+}
+
+/// Query rate limit tracking per user.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueryRateLimit {
+    /// User DID.
+    pub did: String,
+    /// Free queries remaining this period.
+    pub free_queries_remaining: u32,
+    /// Paid queries made this period.
+    pub paid_queries_count: u32,
+    /// When the rate limit resets.
+    pub reset_timestamp: u64,
+}
+
+impl Default for QueryRateLimit {
+    fn default() -> Self {
+        Self {
+            did: String::new(),
+            free_queries_remaining: 1000, // 1000 free queries per day
+            paid_queries_count: 0,
+            reset_timestamp: 0,
+        }
+    }
+}
+
+/// Token operation utilities.
+pub struct TokenOperations;
+
+impl TokenOperations {
+    /// Calculates the transfer fee based on amount and fee schedule.
+    /// Uses checked arithmetic to prevent overflow for large amounts.
+    pub fn calculate_transfer_fee(amount: u128, fee_schedule: &FeeSchedule) -> u128 {
+        let percentage = fee_schedule.transfer_fee_percentage as u128;
+        // Use checked_mul to prevent overflow for large amounts.
+        // If overflow would occur, compute using integer division first
+        // to avoid losing precision only when necessary.
+        match amount.checked_mul(percentage) {
+            Some(product) => product / 10000,
+            None => (amount / 10000) * percentage + (amount % 10000) * percentage / 10000,
+        }
+    }
+
+    /// Calculates the storage fee based on data size.
+    pub fn calculate_storage_fee(size_kb: u64, fee_schedule: &FeeSchedule) -> u128 {
+        size_kb as u128 * fee_schedule.data_write_per_kb
+    }
+
+    /// Validates that a balance has sufficient available funds.
+    pub fn validate_balance(balance: &Balance, required_amount: u128) -> Result<(), String> {
+        if balance.available < required_amount {
+            return Err(format!(
+                "Insufficient balance. Available: {}, Required: {}",
+                balance.available, required_amount
+            ));
+        }
+        Ok(())
+    }
+
+    /// Returns whether the balance has enough available to stake.
+    pub fn can_stake(balance: &Balance, amount: u128) -> bool {
+        balance.available >= amount
+    }
+
+    /// Moves tokens from available to staked.
+    pub fn stake_tokens(balance: &mut Balance, amount: u128) -> Result<(), String> {
+        if !Self::can_stake(balance, amount) {
+            return Err("Insufficient available balance for staking".to_string());
+        }
+        balance.available -= amount;
+        balance.staked += amount;
+        Ok(())
+    }
+
+    /// Moves tokens from staked to available.
+    pub fn unstake_tokens(balance: &mut Balance, amount: u128) -> Result<(), String> {
+        if balance.staked < amount {
+            return Err("Insufficient staked balance".to_string());
+        }
+        balance.staked -= amount;
+        balance.available += amount;
+        Ok(())
+    }
+}
+
+/// Ethereum-to-Willow bridge deposit.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BridgeDeposit {
+    /// Ethereum transaction hash.
+    pub ethereum_tx_hash: String,
+    /// Source Ethereum address.
+    pub ethereum_address: String,
+    /// Destination Willow DID.
+    pub willow_did: String,
+    /// Amount deposited.
+    pub amount: u128,
+    /// Ethereum block number.
+    pub block_number: u64,
+    /// Unix timestamp.
+    pub timestamp: u64,
+    /// Current status.
+    pub status: BridgeStatus,
+}
+
+/// Willow-to-Ethereum bridge withdrawal.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BridgeWithdrawal {
+    /// Willow transaction hash.
+    pub willow_tx_hash: String,
+    /// Source Willow DID.
+    pub willow_did: String,
+    /// Destination Ethereum address.
+    pub ethereum_address: String,
+    /// Withdrawal amount.
+    pub amount: u128,
+    /// Bridge fee.
+    pub fee: u128,
+    /// Unix timestamp.
+    pub timestamp: u64,
+    /// Current status.
+    pub status: BridgeStatus,
+}
+
+/// Status of a bridge operation.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum BridgeStatus {
+    /// Awaiting confirmation.
+    Pending,
+    /// Confirmed on source chain.
+    Confirmed,
+    /// Operation failed.
+    Failed,
+    /// Successfully completed.
+    Completed,
+}
+
+/// Validator reward tracking.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidatorRewards {
+    /// Validator DID.
+    pub validator_did: String,
+    /// Total block rewards earned.
+    pub block_rewards: u128,
+    /// Total fee rewards earned.
+    pub fee_rewards: u128,
+    /// Total blocks validated.
+    pub total_blocks_validated: u64,
+    /// Last block where rewards were received.
+    pub last_reward_block: u64,
+}
+
+/// Block reward distribution configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RewardDistribution {
+    /// Reward per block in smallest units.
+    pub block_reward: u128,
+    /// Validator share in basis points (1/10000).
+    pub validators_share: u32,
+    /// Treasury share in basis points.
+    pub treasury_share: u32,
+    /// Staker share in basis points.
+    pub stakers_share: u32,
+}
+
+impl Default for RewardDistribution {
+    fn default() -> Self {
+        Self {
+            block_reward: 10 * 10u128.pow(TOKEN_DECIMALS as u32), // 10 WILL per block
+            validators_share: 5000,                               // 50%
+            treasury_share: 2000,                                 // 20%
+            stakers_share: 3000,                                  // 30%
+        }
+    }
+}
+
+// ============================================================================
+// Pay-Gated Reads / x402 Types
+// ============================================================================
+
+/// Pricing configuration for paid reads on a subgrove.
+///
+/// When enabled, users not on the `free_readers` list must pay per query.
+/// Revenue is split between the subgrove owner and the protocol treasury.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReadPricing {
+    /// Whether paid reads are enabled for this subgrove.
+    pub enabled: bool,
+    /// Price per query in smallest WILL token units (10^-18 WILL).
+    pub price_per_query: u128,
+    /// Owner's share of revenue in basis points (0-10000, where 10000 = 100%).
+    /// The remainder goes to the protocol treasury.
+    pub owner_revenue_share_bps: u32,
+}
+
+impl Default for ReadPricing {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            price_per_query: 0,
+            owner_revenue_share_bps: 8000, // 80% to owner, 20% to treasury
+        }
+    }
+}
+
+/// x402 Payment Required response following the x402 protocol.
+///
+/// Returned with HTTP 402 status when a read requires payment.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct X402PaymentRequired {
+    /// Protocol version.
+    pub version: String,
+    /// List of accepted payment schemes.
+    pub accepts: Vec<X402PaymentScheme>,
+}
+
+/// A single payment scheme accepted by the server.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct X402PaymentScheme {
+    /// Payment scheme type (e.g., "exact").
+    pub scheme: String,
+    /// Network identifier (e.g., "willow").
+    pub network: String,
+    /// Payment amount in smallest units as a string.
+    pub amount: String,
+    /// Recipient identifier (subgrove owner DID).
+    pub recipient: String,
+    /// Asset type ("WILL").
+    pub asset: String,
+    /// Human-readable description of what the payment is for.
+    pub description: String,
+    /// Unique payment request ID for idempotency.
+    pub payment_id: String,
+    /// Expiration timestamp (Unix seconds).
+    pub expires_at: u64,
+}
+
+/// Client payment payload sent in X-PAYMENT header.
+///
+/// This is base64-encoded JSON included in the request header
+/// when paying for a read operation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct X402PaymentPayload {
+    /// Payment request ID being fulfilled.
+    pub payment_id: String,
+    /// Payer DID.
+    pub payer_did: String,
+    /// Amount being paid as a string.
+    pub amount: String,
+    /// Cryptographic signature authorizing the payment.
+    #[serde(with = "base64_bytes")]
+    pub signature: Vec<u8>,
+    /// Public key ID used for signing.
+    pub public_key_id: String,
+    /// Nonce for replay protection.
+    pub nonce: u64,
+    /// Timestamp when signed (Unix seconds).
+    pub timestamp: u64,
+}
+
+/// Payment response included in successful read responses.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct X402PaymentResponse {
+    /// Whether payment was successful.
+    pub success: bool,
+    /// Transaction ID for the payment.
+    pub transaction_id: Option<String>,
+    /// Amount actually charged as a string.
+    pub amount_charged: Option<String>,
+    /// Error message if payment failed.
+    pub error: Option<String>,
+}
+
+/// Record of a completed read payment for auditing and analytics.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReadPaymentRecord {
+    /// Unique payment ID.
+    pub payment_id: String,
+    /// Application ID containing the subgrove.
+    pub app_id: String,
+    /// Subgrove that was accessed.
+    pub subgrove_id: String,
+    /// DID that paid for the read.
+    pub payer_did: String,
+    /// Total amount paid.
+    pub amount: u128,
+    /// Amount distributed to the subgrove owner.
+    pub owner_share: u128,
+    /// Amount distributed to the protocol treasury.
+    pub treasury_share: u128,
+    /// Unix timestamp of the payment.
+    pub timestamp: u64,
+}
+
+// ============================================================================
+// Staking Types
+// ============================================================================
+
+/// Minimum stake required to become a validator (10,000 WILL).
+pub const MIN_VALIDATOR_STAKE: u128 = 10_000 * 10u128.pow(18);
+/// Unbonding period duration (7 days).
+pub const UNBONDING_PERIOD_SECONDS: u64 = 7 * 24 * 3600;
+
+/// Validator information and state.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidatorInfo {
+    /// Validator DID.
+    pub did: String,
+    /// Total stake (self + delegated).
+    pub total_stake: u128,
+    /// Validator's own stake.
+    pub self_stake: u128,
+    /// Stake delegated by others.
+    pub delegated_stake: u128,
+    /// Commission rate in basis points.
+    pub commission_rate: u32,
+    /// Whether the validator is active.
+    pub active: bool,
+    /// Whether the validator is jailed.
+    pub jailed: bool,
+    /// When the jail period ends (Unix timestamp).
+    pub jail_end_time: Option<u64>,
+    /// Consensus public key.
+    pub consensus_pubkey: Option<String>,
+}
+
+/// Delegation from a delegator to a validator.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Delegation {
+    /// Delegator DID.
+    pub delegator_did: String,
+    /// Validator DID.
+    pub validator_did: String,
+    /// Delegated amount.
+    pub amount: u128,
+    /// Delegation shares.
+    pub shares: u128,
+    /// When the delegation was created (Unix timestamp).
+    pub timestamp: u64,
+}
+
+/// Delegation being unbonded (in the unbonding period).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UnbondingDelegation {
+    /// Delegator DID.
+    pub delegator_did: String,
+    /// Validator DID.
+    pub validator_did: String,
+    /// Amount being unbonded.
+    pub amount: u128,
+    /// When unbonding completes (Unix timestamp).
+    pub completion_time: u64,
+}
+
+// ============================================================================
+// Fee Audit Types
+// ============================================================================
+
+/// Record of a collected fee.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeeCollection {
+    /// Type of fee collected.
+    pub fee_type: FeeType,
+    /// DID of the fee payer.
+    pub payer_did: String,
+    /// Fee amount.
+    pub amount: u128,
+    /// When the fee was collected (Unix timestamp).
+    pub timestamp: u64,
+    /// Associated transaction ID.
+    pub transaction_id: String,
+    /// Optional metadata.
+    pub metadata: Option<String>,
+    /// Optional memo.
+    pub memo: Option<String>,
+    /// How the fee was distributed.
+    pub distribution: Option<FeeDistribution>,
+}
+
+/// How a fee was distributed among recipients.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeeDistribution {
+    /// Amount distributed to validators.
+    pub validators: u128,
+    /// Amount distributed to treasury.
+    pub treasury: u128,
+    /// Amount burned.
+    pub burned: u128,
+}
+
+/// Type of fee being collected.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum FeeType {
+    /// DID registration fee.
+    DidRegistration,
+    /// Application registration fee.
+    AppRegistration,
+    /// Subgrove registration fee.
+    SubgroveRegistration,
+    /// Data storage fee based on size.
+    DataStorage {
+        /// Size in kilobytes.
+        size_kb: u64,
+    },
+    /// Proof generation fee.
+    ProofGeneration,
+    /// Query fee.
+    Query,
+    /// Transfer fee.
+    Transfer,
+}
+
+// ============================================================================
+// Transformation / Slashing Types
+// ============================================================================
+
+/// Result of transformation execution or verification.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransformationResult {
+    /// Whether execution was performed.
+    pub execution_performed: bool,
+    /// Whether this was selected by sampling.
+    pub was_sampling_selected: bool,
+    /// Whether verification passed.
+    pub verification_passed: bool,
+    /// Expected hash from the indexer submission.
+    pub expected_hash: Option<[u8; 32]>,
+    /// Actual hash computed during verification.
+    pub actual_hash: Option<[u8; 32]>,
+    /// Details about what mismatched, if any.
+    pub mismatch_details: Option<MismatchDetails>,
+    /// Sampling seed used for selection.
+    pub sampling_seed: [u8; 32],
+    /// Block numbers that were processed.
+    pub processed_blocks: Vec<u64>,
+}
+
+/// Details about what mismatched during verification.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MismatchDetails {
+    /// Index of the batch where mismatch occurred.
+    pub batch_index: u32,
+    /// Block range of the mismatched batch.
+    pub block_range: (u64, u64),
+    /// Field that mismatched, if identifiable.
+    pub field: Option<String>,
+    /// Human-readable description of the mismatch.
+    pub description: String,
+}
+
+/// Slashing action created when verification fails.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SlashingAction {
+    /// DID of the indexer being slashed.
+    pub indexer_did: String,
+    /// Subgrove where the violation occurred.
+    pub subgrove_id: String,
+    /// Reason for slashing.
+    pub reason: String,
+    /// Evidence from the transformation verification.
+    pub evidence: TransformationResult,
+    /// Amount to slash.
+    pub slash_amount: u128,
+    /// When the slashing occurred (Unix timestamp).
+    pub timestamp: u64,
+}
+
+/// Helper module for base64 serialization of byte arrays.
+mod base64_bytes {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S>(bytes: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let encoded = STANDARD.encode(bytes);
+        encoded.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let encoded = String::deserialize(deserializer)?;
+        STANDARD.decode(&encoded).map_err(serde::de::Error::custom)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_transfer_fee_calculation() {
+        let fee_schedule = FeeSchedule::default();
+        let amount = 1000 * 10u128.pow(TOKEN_DECIMALS as u32);
+        let fee = TokenOperations::calculate_transfer_fee(amount, &fee_schedule);
+        assert_eq!(fee, 10u128.pow(TOKEN_DECIMALS as u32)); // 1 WILL fee
+    }
+
+    #[test]
+    fn test_staking_operations() {
+        let mut balance = Balance {
+            did: "did:willow:test".to_string(),
+            available: 1000 * 10u128.pow(TOKEN_DECIMALS as u32),
+            staked: 0,
+            locked: 0,
+        };
+
+        let stake_amount = 500 * 10u128.pow(TOKEN_DECIMALS as u32);
+        assert!(TokenOperations::stake_tokens(&mut balance, stake_amount).is_ok());
+        assert_eq!(balance.staked, stake_amount);
+        assert_eq!(balance.available, stake_amount);
+
+        assert!(TokenOperations::unstake_tokens(&mut balance, stake_amount).is_ok());
+        assert_eq!(balance.staked, 0);
+        assert_eq!(balance.available, 1000 * 10u128.pow(TOKEN_DECIMALS as u32));
+    }
+}
