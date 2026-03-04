@@ -284,17 +284,14 @@ pub struct RewardDistribution {
     pub validators_share: u32,
     /// Treasury share in basis points.
     pub treasury_share: u32,
-    /// Staker share in basis points.
-    pub stakers_share: u32,
 }
 
 impl Default for RewardDistribution {
     fn default() -> Self {
         Self {
             block_reward: 10 * 10u128.pow(TOKEN_DECIMALS as u32), // 10 WILL per block
-            validators_share: 5000,                               // 50%
-            treasury_share: 2000,                                 // 20%
-            stakers_share: 3000,                                  // 30%
+            validators_share: 9000,                               // 90%
+            treasury_share: 1000,                                 // 10%
         }
     }
 }
@@ -431,14 +428,10 @@ pub const UNBONDING_PERIOD_SECONDS: u64 = 7 * 24 * 3600;
 pub struct ValidatorInfo {
     /// Validator DID.
     pub did: String,
-    /// Total stake (self + delegated).
+    /// Total stake (equals self_stake).
     pub total_stake: u128,
     /// Validator's own stake.
     pub self_stake: u128,
-    /// Stake delegated by others.
-    pub delegated_stake: u128,
-    /// Commission rate in basis points.
-    pub commission_rate: u32,
     /// Whether the validator is active.
     pub active: bool,
     /// Whether the validator is jailed.
@@ -449,22 +442,7 @@ pub struct ValidatorInfo {
     pub consensus_pubkey: Option<String>,
 }
 
-/// Delegation from a delegator to a validator.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Delegation {
-    /// Delegator DID.
-    pub delegator_did: String,
-    /// Validator DID.
-    pub validator_did: String,
-    /// Delegated amount.
-    pub amount: u128,
-    /// Delegation shares.
-    pub shares: u128,
-    /// When the delegation was created (Unix timestamp).
-    pub timestamp: u64,
-}
-
-/// Delegation being unbonded (in the unbonding period).
+/// Unbonding entry (validator self-unstaking in the unbonding period).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UnbondingDelegation {
     /// Delegator DID.

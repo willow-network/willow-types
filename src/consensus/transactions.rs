@@ -18,10 +18,6 @@ pub enum Transaction {
     Stake(StakeTx),
     /// Begin unstaking tokens (subject to unbonding period).
     Unstake(UnstakeTx),
-    /// Delegate tokens to a validator.
-    Delegate(DelegateTx),
-    /// Undelegate tokens from a validator.
-    Undelegate(UndelegateTx),
 
     // App transactions (with fees)
     /// Register a new application.
@@ -152,8 +148,6 @@ pub struct StakeTx {
     pub validator_did: String,
     /// Amount of WILL tokens to stake.
     pub amount: u128,
-    /// Commission rate in basis points (0-10000 = 0-100%).
-    pub commission_rate: u32,
     /// Public key for CometBFT consensus participation.
     pub consensus_pubkey: String,
     /// Cryptographic signature from the validator.
@@ -172,40 +166,6 @@ pub struct UnstakeTx {
     /// Amount of WILL tokens to unstake.
     pub amount: u128,
     /// Cryptographic signature from the validator.
-    pub signature: Vec<u8>,
-    /// ID of the public key used for signing.
-    pub public_key_id: String,
-    /// Replay protection nonce.
-    pub nonce: u64,
-}
-
-/// Transaction to delegate tokens to a validator.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DelegateTx {
-    /// DID of the delegator.
-    pub delegator_did: String,
-    /// DID of the validator to delegate to.
-    pub validator_did: String,
-    /// Amount of WILL tokens to delegate.
-    pub amount: u128,
-    /// Cryptographic signature from the delegator.
-    pub signature: Vec<u8>,
-    /// ID of the public key used for signing.
-    pub public_key_id: String,
-    /// Replay protection nonce.
-    pub nonce: u64,
-}
-
-/// Transaction to undelegate tokens from a validator.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UndelegateTx {
-    /// DID of the delegator.
-    pub delegator_did: String,
-    /// DID of the validator to undelegate from.
-    pub validator_did: String,
-    /// Amount of WILL tokens to undelegate.
-    pub amount: u128,
-    /// Cryptographic signature from the delegator.
     pub signature: Vec<u8>,
     /// ID of the public key used for signing.
     pub public_key_id: String,
