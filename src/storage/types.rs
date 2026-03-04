@@ -105,6 +105,11 @@ pub struct SubgroveRegistration {
     /// Present when the subgrove was registered using a template.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub template_config: Option<TemplateSubgroveConfig>,
+    /// Optional privacy configuration for private subgroves.
+    /// When present, data stays with the provider and only state root
+    /// commitments go on-chain.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub privacy: Option<PrivacyConfig>,
     /// Unix timestamp of creation.
     pub created_at: u64,
     /// Unix timestamp of last update.
@@ -198,6 +203,73 @@ impl SubgroveIndexingState {
     pub fn is_realtime(&self) -> bool {
         self.phase == IndexingPhase::Realtime
     }
+}
+
+/// Configuration for a private subgrove.
+/// Presence of this on a SubgroveRegistration means data stays with the provider,
+/// only state root commitments go on-chain.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrivacyConfig {
+    /// Optional whitelist of indexer DIDs allowed to index this subgrove.
+    /// When Some, only these DIDs can submit IndexedBlockSubmissionTx / HistoricalCheckpointTx.
+    /// When None, open marketplace (existing behavior).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allowed_indexers: Option<Vec<String>>,
+    /// How often the provider must commit state roots to consensus.
+    pub commitment_frequency: CommitmentFrequency,
+}
+
+/// How often the provider must publish state root commitments on-chain.
+/// Default: EveryUpdate (strongest freshness guarantee).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum CommitmentFrequency {
+    /// Commit after every write/block update (default, strongest freshness).
+    EveryUpdate,
+    /// Commit every N blocks processed.
+    EveryNBlocks(u64),
+    /// Commit at least every N seconds.
+    EveryNSeconds(u64),
+    /// No on-chain commitments. Provider serves data without consensus anchoring.
+    ///
+    /// **Security note**: This means zero on-chain accountability — the provider
+    /// can silently modify or delete data without detection. Should only be used
+    /// for trusted internal providers where the subgrove owner has a separate
+    /// out-of-band trust relationship with the provider (e.g., the owner IS the
+    /// provider, or they share the same organizational control).
+    Never,
+}
+
+impl Default for CommitmentFrequency {
+    fn default() -> Self {
+        CommitmentFrequency::EveryUpdate
+    }
+}
+
+/// Encrypted copy of a subgrove's symmetric key, wrapped for a specific reader DID.
+/// Used for access control — owner wraps the subgrove key for each authorized reader.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EncryptedKeyGrant {
+    /// DID of the grantee receiving access.
+    pub grantee_did: String,
+    /// Key epoch this grant belongs to.
+    pub key_epoch: u32,
+    /// ID of the grantee's public key used for ECDH.
+    pub grantee_public_key_id: String,
+    /// Ephemeral public key for ECDH (32 bytes X25519).
+    pub ephemeral_public_key: Vec<u8>,
+    /// nonce (24 bytes) || ciphertext || auth_tag (16 bytes).
+    pub encrypted_key: Vec<u8>,
+    /// DID that granted this key.
+    pub granted_by: String,
+    /// Unix timestamp when granted.
+    pub granted_at: u64,
+}
+
+/// Algorithm used for key wrapping in EncryptedKeyGrant.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum EncryptionAlgorithm {
+    /// XChaCha20-Poly1305 authenticated encryption.
+    XChaCha20Poly1305,
 }
 
 /// Permission grant for access control.

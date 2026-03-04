@@ -109,6 +109,16 @@ pub enum Transaction {
     /// Remove a TEE enclave registry admin (admin only).
     RemoveEnclaveAdmin(crate::tee::RemoveEnclaveAdminTx),
 
+    // Privacy / private subgrove transactions
+    /// Grant a subgrove encryption key to a DID.
+    GrantSubgroveKey(GrantSubgroveKeyTx),
+    /// Revoke a subgrove encryption key from a DID.
+    RevokeSubgroveKey(RevokeSubgroveKeyTx),
+    /// Rotate the subgrove encryption key and re-grant to authorized DIDs.
+    RotateSubgroveKey(RotateSubgroveKeyTx),
+    /// Submit a state root commitment for a private subgrove.
+    PrivateSubgroveCommitment(PrivateSubgroveCommitmentTx),
+
     // ERC-8004 transactions
     /// Link an Ethereum address to a DID (derived from secp256k1 key).
     LinkEthAddress(LinkEthAddressTx),
@@ -255,6 +265,12 @@ pub struct RegisterSubgroveTx {
     /// The subgrove mode: DataStorage or BlockchainIndexing.
     #[serde(default = "super::indexing_transactions::default_data_storage_mode")]
     pub mode: super::indexing_transactions::SubgroveMode,
+    /// Optional privacy configuration for private subgroves.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub privacy: Option<crate::storage::PrivacyConfig>,
+    /// Optional initial key grant for the owner (when privacy is enabled).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub initial_owner_key_grant: Option<crate::storage::EncryptedKeyGrant>,
     /// Cryptographic signature from the owner.
     pub signature: Vec<u8>,
     /// ID of the public key used for signing.
@@ -531,6 +547,109 @@ pub struct LinkEthAddressTx {
     pub public_key_id: String,
     /// Cryptographic signature from the DID owner.
     pub signature: Vec<u8>,
+    /// Replay protection nonce.
+    pub nonce: u64,
+}
+
+/// Transaction to grant a subgrove encryption key to a DID.
+///
+/// Only the subgrove owner or an admin can submit this transaction.
+/// The encrypted key grant contains the subgrove's symmetric key
+/// wrapped for the grantee's public key.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GrantSubgroveKeyTx {
+    /// Parent application ID.
+    pub app_id: String,
+    /// Subgrove to grant access to.
+    pub subgrove_id: String,
+    /// The encrypted key grant for the grantee.
+    pub encrypted_key_grant: crate::storage::EncryptedKeyGrant,
+    /// DID of the sender (must be owner or admin).
+    pub sender_did: String,
+    /// Cryptographic signature from the sender.
+    pub signature: Vec<u8>,
+    /// ID of the public key used for signing.
+    pub public_key_id: String,
+    /// Replay protection nonce.
+    pub nonce: u64,
+}
+
+/// Transaction to revoke a subgrove encryption key from a DID.
+///
+/// Only the subgrove owner or an admin can submit this transaction.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RevokeSubgroveKeyTx {
+    /// Parent application ID.
+    pub app_id: String,
+    /// Subgrove to revoke access from.
+    pub subgrove_id: String,
+    /// DID to revoke access from.
+    pub revokee_did: String,
+    /// DID of the sender (must be owner or admin).
+    pub sender_did: String,
+    /// Cryptographic signature from the sender.
+    pub signature: Vec<u8>,
+    /// ID of the public key used for signing.
+    pub public_key_id: String,
+    /// Replay protection nonce.
+    pub nonce: u64,
+}
+
+/// Transaction to rotate the subgrove encryption key.
+///
+/// Replaces all existing key grants with new ones for the new epoch.
+/// Only the subgrove owner can submit this transaction.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RotateSubgroveKeyTx {
+    /// Parent application ID.
+    pub app_id: String,
+    /// Subgrove to rotate key for.
+    pub subgrove_id: String,
+    /// New key epoch (must be current_epoch + 1).
+    pub new_epoch: u32,
+    /// New encrypted key grants for all authorized DIDs.
+    pub new_grants: Vec<crate::storage::EncryptedKeyGrant>,
+    /// DID of the sender (must be owner).
+    pub sender_did: String,
+    /// Cryptographic signature from the sender.
+    pub signature: Vec<u8>,
+    /// ID of the public key used for signing.
+    pub public_key_id: String,
+    /// Replay protection nonce.
+    pub nonce: u64,
+}
+
+/// Transaction to submit a state root commitment for a private subgrove.
+///
+/// The provider (indexer) submits the GroveDB root hash of their local data store
+/// to consensus at the configured commitment frequency.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrivateSubgroveCommitmentTx {
+    /// Parent application ID.
+    pub app_id: String,
+    /// Subgrove this commitment is for.
+    pub subgrove_id: String,
+    /// DID of the provider submitting the commitment.
+    pub provider_did: String,
+    /// GroveDB root hash of the provider's local data store.
+    pub state_root: [u8; 32],
+    /// Number of documents/entities stored.
+    pub item_count: u64,
+    /// Total storage size in bytes.
+    pub storage_size: u64,
+    /// Optional GKR proof for BlockchainIndexing private subgroves.
+    /// Proves the latest batch of indexed data was correctly computed from source chain events.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gkr_proof: Option<crate::consensus::indexing_transactions::GkrProofData>,
+    /// Optional TEE attestation of the commitment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tee_attestation: Option<crate::tee::TeeAttestation>,
+    /// Unix timestamp of this commitment.
+    pub timestamp: u64,
+    /// Cryptographic signature from the provider.
+    pub signature: Vec<u8>,
+    /// ID of the public key used for signing.
+    pub public_key_id: String,
     /// Replay protection nonce.
     pub nonce: u64,
 }
