@@ -13,8 +13,17 @@ pub const TOKEN_NAME: &str = "Willow Token";
 pub const TOKEN_SYMBOL: &str = "WILL";
 /// Number of decimal places (18, like Ethereum).
 pub const TOKEN_DECIMALS: u8 = 18;
-/// Initial token supply (1 billion WILL).
-pub const INITIAL_SUPPLY: u128 = 1_000_000_000 * 10u128.pow(TOKEN_DECIMALS as u32);
+/// Genesis allocation (400 million WILL).
+/// This is the pre-mined supply distributed at genesis (team, treasury, ecosystem).
+pub const INITIAL_SUPPLY: u128 = 400_000_000 * 10u128.pow(TOKEN_DECIMALS as u32);
+/// Hard cap on total WILL supply (1 billion WILL).
+pub const MAX_SUPPLY: u128 = 1_000_000_000 * 10u128.pow(TOKEN_DECIMALS as u32);
+/// Total tokens reserved for block reward emissions.
+pub const EMISSION_SUPPLY: u128 = MAX_SUPPLY - INITIAL_SUPPLY;
+/// Blocks between halvings (~4 years at 1 second block time).
+pub const HALVING_INTERVAL: u64 = 126_144_000;
+/// Number of halvings before block reward effectively reaches zero.
+pub const MAX_HALVINGS: u32 = 64;
 /// DID of the protocol treasury.
 pub const TREASURY_DID: &str = "did:willow:treasury";
 
@@ -27,12 +36,19 @@ pub struct TokenState {
     pub symbol: String,
     /// Decimal places.
     pub decimals: u8,
-    /// Maximum supply.
-    pub total_supply: u128,
-    /// Tokens minted so far.
+    /// Genesis allocation (pre-mined supply distributed at chain start).
+    pub genesis_supply: u128,
+    /// Cumulative tokens minted via block rewards.
     pub minted_supply: u128,
     /// Ethereum bridge contract address.
     pub bridge_address: Option<String>,
+}
+
+impl TokenState {
+    /// Returns the circulating supply: genesis allocation + minted block rewards.
+    pub fn circulating_supply(&self) -> u128 {
+        self.genesis_supply + self.minted_supply
+    }
 }
 
 /// Account balance with available, staked, and locked amounts.
@@ -275,23 +291,20 @@ pub struct ValidatorRewards {
     pub last_reward_block: u64,
 }
 
-/// Block reward distribution configuration.
+/// Fee distribution configuration (how collected fees are split).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RewardDistribution {
-    /// Reward per block in smallest units.
-    pub block_reward: u128,
-    /// Validator share in basis points (1/10000).
+    /// Validator share of fees in basis points (1/10000).
     pub validators_share: u32,
-    /// Treasury share in basis points.
+    /// Treasury share of fees in basis points.
     pub treasury_share: u32,
 }
 
 impl Default for RewardDistribution {
     fn default() -> Self {
         Self {
-            block_reward: 10 * 10u128.pow(TOKEN_DECIMALS as u32), // 10 WILL per block
-            validators_share: 9000,                               // 90%
-            treasury_share: 1000,                                 // 10%
+            validators_share: 9000, // 90%
+            treasury_share: 1000,   // 10%
         }
     }
 }
@@ -487,8 +500,6 @@ pub struct FeeDistribution {
     pub validators: u128,
     /// Amount distributed to treasury.
     pub treasury: u128,
-    /// Amount burned.
-    pub burned: u128,
 }
 
 /// Type of fee being collected.
