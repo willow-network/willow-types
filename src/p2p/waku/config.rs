@@ -57,8 +57,6 @@ pub struct RelayConfig {
 /// Willow topic configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TopicsConfig {
-    /// Bridge coordination topic.
-    pub bridge_topic: String,
     /// State sync topic.
     pub state_sync_topic: String,
     /// Validator metrics topic.
@@ -101,7 +99,6 @@ impl Default for RelayConfig {
 impl Default for TopicsConfig {
     fn default() -> Self {
         Self {
-            bridge_topic: "/willow/1/bridge/proto".to_string(),
             state_sync_topic: "/willow/1/state-sync/proto".to_string(),
             metrics_topic: "/willow/1/metrics/proto".to_string(),
             status_topic: "/willow/1/status/proto".to_string(),

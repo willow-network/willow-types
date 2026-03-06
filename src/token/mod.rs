@@ -1,7 +1,7 @@
 //! Core types for the WILL token system.
 //!
 //! Defines token state, balances, transfers, staking info, fee schedules,
-//! bridge operations, and reward distribution structures.
+//! and reward distribution structures.
 
 pub mod units;
 
@@ -40,8 +40,6 @@ pub struct TokenState {
     pub genesis_supply: u128,
     /// Cumulative tokens minted via block rewards.
     pub minted_supply: u128,
-    /// Ethereum bridge contract address.
-    pub bridge_address: Option<String>,
 }
 
 impl TokenState {
@@ -60,7 +58,7 @@ pub struct Balance {
     pub available: u128,
     /// Amount staked with validators.
     pub staked: u128,
-    /// Amount locked (unbonding or bridge).
+    /// Amount locked (unbonding).
     pub locked: u128,
 }
 
@@ -251,57 +249,6 @@ impl TokenOperations {
         balance.available += amount;
         Ok(())
     }
-}
-
-/// Ethereum-to-Willow bridge deposit.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BridgeDeposit {
-    /// Ethereum transaction hash.
-    pub ethereum_tx_hash: String,
-    /// Source Ethereum address.
-    pub ethereum_address: String,
-    /// Destination Willow DID.
-    pub willow_did: String,
-    /// Amount deposited.
-    pub amount: u128,
-    /// Ethereum block number.
-    pub block_number: u64,
-    /// Unix timestamp.
-    pub timestamp: u64,
-    /// Current status.
-    pub status: BridgeStatus,
-}
-
-/// Willow-to-Ethereum bridge withdrawal.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BridgeWithdrawal {
-    /// Willow transaction hash.
-    pub willow_tx_hash: String,
-    /// Source Willow DID.
-    pub willow_did: String,
-    /// Destination Ethereum address.
-    pub ethereum_address: String,
-    /// Withdrawal amount.
-    pub amount: u128,
-    /// Bridge fee.
-    pub fee: u128,
-    /// Unix timestamp.
-    pub timestamp: u64,
-    /// Current status.
-    pub status: BridgeStatus,
-}
-
-/// Status of a bridge operation.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum BridgeStatus {
-    /// Awaiting confirmation.
-    Pending,
-    /// Confirmed on source chain.
-    Confirmed,
-    /// Operation failed.
-    Failed,
-    /// Successfully completed.
-    Completed,
 }
 
 /// Validator reward tracking.
@@ -533,9 +480,6 @@ pub struct FeeDistribution {
 /// Treasury's share of query fees, in percent.
 pub const QUERY_FEE_TREASURY_PERCENT: u128 = 10;
 
-/// Bridge withdrawal fee in basis points (0.25%).
-pub const BRIDGE_WITHDRAWAL_FEE_BPS: u128 = 25;
-
 /// Daily free query limit per DID.
 pub const FREE_QUERIES_PER_DAY: u32 = 500;
 
@@ -565,8 +509,6 @@ pub enum FeeType {
     PrivateKeyRotate,
     /// Private subgrove commitment fee.
     PrivateCommitment,
-    /// Bridge withdrawal fee.
-    BridgeWithdrawal,
 }
 
 // ============================================================================

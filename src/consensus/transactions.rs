@@ -31,14 +31,6 @@ pub enum Transaction {
     /// Update the free readers list for a subgrove.
     UpdateSubgroveFreeReaders(UpdateSubgroveFreeReadersTx),
 
-    // Bridge transactions
-    /// Submit proof of Ethereum stake.
-    SubmitStakeProof(SubmitStakeProofTx),
-    /// Request withdrawal to Ethereum.
-    RequestWithdrawal(RequestWithdrawalTx),
-    /// Submit batch of withdrawal proofs.
-    SubmitWithdrawalBatch(SubmitWithdrawalBatchTx),
-
     // Identity transactions
     /// Register a decentralized identifier (DID).
     RegisterDid(RegisterDidTx),
@@ -296,57 +288,6 @@ pub struct UpdateSubgroveFreeReadersTx {
     pub public_key_id: String,
     /// Replay protection nonce.
     pub nonce: u64,
-}
-
-/// Transaction to submit proof of Ethereum stake for bridge operations.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SubmitStakeProofTx {
-    /// RLP-encoded Ethereum block header.
-    pub eth_block_header: Vec<u8>,
-    /// Merkle Patricia Trie proof of receipt inclusion.
-    pub receipt_proof: Vec<u8>,
-    /// Index of the log in the transaction receipt.
-    pub log_index: u64,
-    /// Willow DID to receive the bridged tokens.
-    pub willow_recipient: String,
-    /// Optional additional finality proof.
-    pub finality_proof: Option<Vec<u8>>,
-    /// Cryptographic signature.
-    pub signature: Vec<u8>,
-}
-
-/// Transaction to request withdrawal of tokens to Ethereum.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RequestWithdrawalTx {
-    /// Willow DID initiating the withdrawal.
-    pub willow_sender: String,
-    /// Ethereum address to receive the tokens.
-    pub eth_recipient: [u8; 20],
-    /// Amount of WILL tokens to withdraw.
-    pub amount: u128,
-    /// Cryptographic signature from the sender.
-    pub signature: Vec<u8>,
-    /// ID of the public key used for signing.
-    pub public_key_id: String,
-    /// Replay protection nonce.
-    pub nonce: u64,
-}
-
-/// Transaction to submit a batch of validated withdrawals.
-///
-/// Multiple validator signatures are required to approve a withdrawal batch.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SubmitWithdrawalBatchTx {
-    /// Unique identifier for this batch.
-    pub batch_id: [u8; 32],
-    /// Merkle root of the withdrawal requests.
-    pub merkle_root: [u8; 32],
-    /// IDs of withdrawal requests included in this batch.
-    pub withdrawal_requests: Vec<[u8; 32]>,
-    /// Signatures from validators approving the batch.
-    pub validator_signatures: Vec<Vec<u8>>,
-    /// Cryptographic signature.
-    pub signature: Vec<u8>,
 }
 
 /// Transaction to register a new decentralized identifier (DID).

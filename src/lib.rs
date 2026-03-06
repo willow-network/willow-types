@@ -7,7 +7,6 @@
 pub mod error;
 pub mod token;
 pub mod storage;
-pub mod bridge;
 pub mod tee;
 pub mod reputation;
 pub mod consensus;
