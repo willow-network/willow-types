@@ -97,6 +97,10 @@ pub struct StakeInfo {
 }
 
 /// Fee schedule defining costs for various operations.
+///
+/// Uses a cost-based model: `fee = base_tx_cost + (bytes_written × cost_per_byte)`
+///
+/// Parameters derived from: 30 validators, 10-year storage horizon, 10x profit margin, $0.10 WILL price.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeeSchedule {
     /// Fee to register a DID (identity).
@@ -105,26 +109,45 @@ pub struct FeeSchedule {
     pub app_registration: u128,
     /// Fee to register a subgrove.
     pub subgrove_registration: u128,
-    /// Fee per KB of data written.
-    pub data_write_per_kb: u128,
-    /// Fee to generate a proof.
-    pub proof_generation: u128,
+    /// Base cost per transaction (covers consensus overhead).
+    pub base_tx_cost: u128,
+    /// Cost per byte of data written to storage.
+    pub cost_per_byte: u128,
     /// Fee per query after rate limit.
-    pub query_after_limit: u128,
+    pub query_fee: u128,
     /// Transfer fee in basis points (1/10000).
     pub transfer_fee_percentage: u32,
+    /// Maximum transaction size in bytes.
+    pub max_tx_size_bytes: u64,
+    /// Maximum data payload size in bytes (for StoreData/UpdateData).
+    pub max_data_payload_bytes: u64,
 }
+
+/// Estimated bytes written for a key grant operation.
+pub const KEY_GRANT_ESTIMATED_BYTES: u64 = 250;
+/// Estimated bytes written for a key revoke operation.
+pub const KEY_REVOKE_ESTIMATED_BYTES: u64 = 250;
+/// Base bytes for a key rotation operation (epoch update + grant deletion).
+pub const KEY_ROTATE_BASE_BYTES: u64 = 100;
+/// Estimated bytes per new grant in a key rotation.
+pub const KEY_ROTATE_PER_GRANT_BYTES: u64 = 220;
+/// Estimated bytes for a private subgrove commitment.
+pub const COMMITMENT_ESTIMATED_BYTES: u64 = 200;
+/// Estimated bytes for a re-execution verification.
+pub const REEXECUTION_ESTIMATED_BYTES: u64 = 1200;
 
 impl Default for FeeSchedule {
     fn default() -> Self {
         Self {
-            did_registration: 10u128.pow(TOKEN_DECIMALS as u32), // 1 WILL - low enough to not be prohibitive, high enough to deter spam
+            did_registration: 10u128.pow(TOKEN_DECIMALS as u32), // 1 WILL
             app_registration: 1000 * 10u128.pow(TOKEN_DECIMALS as u32), // 1000 WILL
             subgrove_registration: 100 * 10u128.pow(TOKEN_DECIMALS as u32), // 100 WILL
-            data_write_per_kb: 10u128.pow(TOKEN_DECIMALS as u32 - 1), // 0.1 WILL per KB
-            proof_generation: 10u128.pow(TOKEN_DECIMALS as u32 - 2), // 0.01 WILL
-            query_after_limit: 10u128.pow(TOKEN_DECIMALS as u32 - 3), // 0.001 WILL per query
-            transfer_fee_percentage: 10,                         // 0.1%
+            base_tx_cost: 24_000_000_000_000_000,      // 0.024 WILL
+            cost_per_byte: 86_400_000_000_000,          // 0.0000864 WILL
+            query_fee: 4_000_000_000_000_000,           // 0.004 WILL
+            transfer_fee_percentage: 10,                // 0.1%
+            max_tx_size_bytes: 1_048_576,               // 1 MB
+            max_data_payload_bytes: 524_288,            // 512 KB
         }
     }
 }
@@ -183,9 +206,14 @@ impl TokenOperations {
         }
     }
 
-    /// Calculates the storage fee based on data size.
-    pub fn calculate_storage_fee(size_kb: u64, fee_schedule: &FeeSchedule) -> u128 {
-        size_kb as u128 * fee_schedule.data_write_per_kb
+    /// Calculates the write fee: base_tx_cost + bytes × cost_per_byte.
+    pub fn calculate_write_fee(bytes: u64, fee_schedule: &FeeSchedule) -> u128 {
+        fee_schedule.base_tx_cost + bytes as u128 * fee_schedule.cost_per_byte
+    }
+
+    /// Calculates the operation fee for non-data operations using estimated byte counts.
+    pub fn calculate_operation_fee(estimated_bytes: u64, fee_schedule: &FeeSchedule) -> u128 {
+        fee_schedule.base_tx_cost + estimated_bytes as u128 * fee_schedule.cost_per_byte
     }
 
     /// Validates that a balance has sufficient available funds.
@@ -505,18 +533,6 @@ pub struct FeeDistribution {
 /// Treasury's share of query fees, in percent.
 pub const QUERY_FEE_TREASURY_PERCENT: u128 = 10;
 
-/// Base fee for private subgrove key grant operations (0.01 WILL).
-pub const PRIVATE_KEY_GRANT_FEE: u128 = 10u128.pow(16); // 0.01 WILL
-
-/// Base fee for private subgrove key revoke operations (0.01 WILL).
-pub const PRIVATE_KEY_REVOKE_FEE: u128 = 10u128.pow(16); // 0.01 WILL
-
-/// Base fee for private subgrove key rotation operations (0.05 WILL).
-pub const PRIVATE_KEY_ROTATE_FEE: u128 = 5 * 10u128.pow(16); // 0.05 WILL
-
-/// Base fee for private subgrove commitment operations (0.01 WILL).
-pub const PRIVATE_COMMITMENT_FEE: u128 = 10u128.pow(16); // 0.01 WILL
-
 /// Bridge withdrawal fee in basis points (0.25%).
 pub const BRIDGE_WITHDRAWAL_FEE_BPS: u128 = 25;
 
@@ -534,11 +550,9 @@ pub enum FeeType {
     SubgroveRegistration,
     /// Data storage fee based on size.
     DataStorage {
-        /// Size in kilobytes.
-        size_kb: u64,
+        /// Size in bytes.
+        size_bytes: u64,
     },
-    /// Proof generation fee.
-    ProofGeneration,
     /// Query fee.
     Query,
     /// Transfer fee.
@@ -642,6 +656,48 @@ mod tests {
         let amount = 1000 * 10u128.pow(TOKEN_DECIMALS as u32);
         let fee = TokenOperations::calculate_transfer_fee(amount, &fee_schedule);
         assert_eq!(fee, 10u128.pow(TOKEN_DECIMALS as u32)); // 1 WILL fee
+    }
+
+    #[test]
+    fn test_calculate_write_fee() {
+        let schedule = FeeSchedule::default();
+
+        // 0 bytes: just the base cost
+        assert_eq!(
+            TokenOperations::calculate_write_fee(0, &schedule),
+            schedule.base_tx_cost
+        );
+
+        // 1024 bytes (1 KB)
+        let fee_1kb = TokenOperations::calculate_write_fee(1024, &schedule);
+        let expected_1kb = schedule.base_tx_cost + 1024 * schedule.cost_per_byte;
+        assert_eq!(fee_1kb, expected_1kb);
+
+        // 100 bytes (small write — should be cheaper than old 1KB minimum)
+        let fee_100b = TokenOperations::calculate_write_fee(100, &schedule);
+        assert_eq!(
+            fee_100b,
+            schedule.base_tx_cost + 100 * schedule.cost_per_byte
+        );
+    }
+
+    #[test]
+    fn test_calculate_operation_fee() {
+        let schedule = FeeSchedule::default();
+
+        let key_grant_fee =
+            TokenOperations::calculate_operation_fee(KEY_GRANT_ESTIMATED_BYTES, &schedule);
+        assert_eq!(
+            key_grant_fee,
+            schedule.base_tx_cost + KEY_GRANT_ESTIMATED_BYTES as u128 * schedule.cost_per_byte
+        );
+
+        // Key rotation scales with number of grants
+        let rotate_5 = KEY_ROTATE_BASE_BYTES + KEY_ROTATE_PER_GRANT_BYTES * 5;
+        let rotate_10 = KEY_ROTATE_BASE_BYTES + KEY_ROTATE_PER_GRANT_BYTES * 10;
+        let fee_5 = TokenOperations::calculate_operation_fee(rotate_5, &schedule);
+        let fee_10 = TokenOperations::calculate_operation_fee(rotate_10, &schedule);
+        assert!(fee_10 > fee_5);
     }
 
     #[test]

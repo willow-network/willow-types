@@ -59,8 +59,9 @@ pub const DEFAULT_EPOCH_LENGTH: u64 = 100;
 /// Default reward per epoch per indexer: 0.1 WILL
 pub const DEFAULT_REWARD_PER_EPOCH: u128 = 100 * ONE_MILLI_WILL;
 
-/// Base re-execution fee: 0.01 WILL
-pub const BASE_REEXECUTION_FEE: u128 = 10 * ONE_MILLI_WILL;
+/// Base re-execution fee: base_tx_cost + REEXECUTION_ESTIMATED_BYTES × cost_per_byte
+/// = 24_000_000_000_000_000 + 1200 × 86_400_000_000_000 = 127_680_000_000_000_000
+pub const BASE_REEXECUTION_FEE: u128 = 24_000_000_000_000_000 + 1200 * 86_400_000_000_000;
 
 /// App registration fee: 1,000 WILL
 pub const APP_REGISTRATION_FEE: u128 = ONE_KILO_WILL;
