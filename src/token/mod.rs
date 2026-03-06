@@ -159,7 +159,7 @@ impl Default for QueryRateLimit {
     fn default() -> Self {
         Self {
             did: String::new(),
-            free_queries_remaining: 1000, // 1000 free queries per day
+            free_queries_remaining: FREE_QUERIES_PER_DAY,
             paid_queries_count: 0,
             reset_timestamp: 0,
         }
@@ -502,6 +502,27 @@ pub struct FeeDistribution {
     pub treasury: u128,
 }
 
+/// Treasury's share of query fees, in percent.
+pub const QUERY_FEE_TREASURY_PERCENT: u128 = 10;
+
+/// Base fee for private subgrove key grant operations (0.01 WILL).
+pub const PRIVATE_KEY_GRANT_FEE: u128 = 10u128.pow(16); // 0.01 WILL
+
+/// Base fee for private subgrove key revoke operations (0.01 WILL).
+pub const PRIVATE_KEY_REVOKE_FEE: u128 = 10u128.pow(16); // 0.01 WILL
+
+/// Base fee for private subgrove key rotation operations (0.05 WILL).
+pub const PRIVATE_KEY_ROTATE_FEE: u128 = 5 * 10u128.pow(16); // 0.05 WILL
+
+/// Base fee for private subgrove commitment operations (0.01 WILL).
+pub const PRIVATE_COMMITMENT_FEE: u128 = 10u128.pow(16); // 0.01 WILL
+
+/// Bridge withdrawal fee in basis points (0.25%).
+pub const BRIDGE_WITHDRAWAL_FEE_BPS: u128 = 25;
+
+/// Daily free query limit per DID.
+pub const FREE_QUERIES_PER_DAY: u32 = 500;
+
 /// Type of fee being collected.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum FeeType {
@@ -522,6 +543,16 @@ pub enum FeeType {
     Query,
     /// Transfer fee.
     Transfer,
+    /// Private subgrove key grant fee.
+    PrivateKeyGrant,
+    /// Private subgrove key revoke fee.
+    PrivateKeyRevoke,
+    /// Private subgrove key rotation fee.
+    PrivateKeyRotate,
+    /// Private subgrove commitment fee.
+    PrivateCommitment,
+    /// Bridge withdrawal fee.
+    BridgeWithdrawal,
 }
 
 // ============================================================================
