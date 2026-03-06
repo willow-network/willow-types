@@ -19,6 +19,8 @@ pub enum SlashingViolation {
     Unavailability,
     /// Other malicious behavior (requires detailed evidence).
     MaliciousBehavior,
+    /// Provider failed to submit required commitments for a private subgrove.
+    CommitmentLivenessViolation,
 }
 
 /// Transaction for an indexer to collect accumulated query fees.

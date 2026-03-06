@@ -1,3 +1,4 @@
+pub mod commitment_liveness;
 pub mod data_updates;
 pub mod execution_modes;
 pub mod gkr_proof_types;
@@ -8,6 +9,7 @@ pub mod reputation;
 pub mod slashing;
 pub mod subgrove_deployment;
 
+pub use commitment_liveness::*;
 pub use data_updates::*;
 pub use execution_modes::*;
 pub use gkr_proof_types::*;
