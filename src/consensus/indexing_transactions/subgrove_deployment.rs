@@ -90,9 +90,7 @@ pub struct CheckpointVerificationConfig {
 
 impl Default for CheckpointVerificationConfig {
     fn default() -> Self {
-        CheckpointVerificationConfig {
-            required_tee: None,
-        }
+        CheckpointVerificationConfig { required_tee: None }
     }
 }
 

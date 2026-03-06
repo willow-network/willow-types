@@ -1,5 +1,5 @@
-pub mod types;
 pub mod enclave_transactions;
+pub mod types;
 
-pub use types::*;
 pub use enclave_transactions::*;
+pub use types::*;

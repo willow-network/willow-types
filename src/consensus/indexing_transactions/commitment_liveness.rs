@@ -156,8 +156,7 @@ impl CommitmentLivenessStatus {
             CommitmentLivenessStatus::Slashing { total_slashed_bps } => {
                 let new_total = total_slashed_bps.saturating_add(config.slash_per_window_bps);
                 if new_total >= config.max_slash_bps {
-                    let slash_this_window =
-                        config.max_slash_bps.saturating_sub(*total_slashed_bps);
+                    let slash_this_window = config.max_slash_bps.saturating_sub(*total_slashed_bps);
                     *self = CommitmentLivenessStatus::Suspended {
                         consecutive_hits: 0,
                     };

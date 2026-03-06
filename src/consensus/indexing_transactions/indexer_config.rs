@@ -139,7 +139,7 @@ impl IndexerConfig {
                     reward_per_epoch: 100 * ONE_MILLI_WILL, // 0.1 WILL per epoch
                     epoch_length: DEFAULT_EPOCH_LENGTH,
                     min_indexer_stake: 100_000_000_000_000_000_000_000,
-                    }
+                }
             }
             // TEE execution: hardware provides trust, fewer indexers needed
             ExecutionMode::TeeExecution { .. } => Self {

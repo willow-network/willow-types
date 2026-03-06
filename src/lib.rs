@@ -4,20 +4,23 @@
 //! used across multiple Willow subsystems. By placing these in a shared crate,
 //! circular dependencies between subsystems are eliminated.
 
+pub mod consensus;
 pub mod error;
-pub mod token;
+pub mod indexer_node;
+pub mod indexing;
+pub mod p2p;
+pub mod reputation;
+pub mod state_sync;
 pub mod storage;
 pub mod tee;
-pub mod reputation;
-pub mod consensus;
-pub mod indexer_node;
-pub mod state_sync;
-pub mod p2p;
-pub mod indexing;
+pub mod token;
 
 // Re-export commonly used types at the crate root
-pub use error::{WillowError, StorageError, ConsensusError, IndexingError, ApiError, NetworkError, ConfigError, LightClientError};
-pub use token::{Balance, FeeSchedule, ReadPricing, TokenState};
-pub use tee::{TeeType, TeeAttestation, TeeCapability, TeeVerificationError};
-pub use reputation::{IndexerReputation, ReputationTier, IndexerProfile, OperatorEntity};
 pub use consensus::transactions::Transaction;
+pub use error::{
+    ApiError, ConfigError, ConsensusError, IndexingError, LightClientError, NetworkError,
+    StorageError, WillowError,
+};
+pub use reputation::{IndexerProfile, IndexerReputation, OperatorEntity, ReputationTier};
+pub use tee::{TeeAttestation, TeeCapability, TeeType, TeeVerificationError};
+pub use token::{Balance, FeeSchedule, ReadPricing, TokenState};

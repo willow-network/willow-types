@@ -140,12 +140,12 @@ impl Default for FeeSchedule {
             did_registration: 10u128.pow(TOKEN_DECIMALS as u32), // 1 WILL
             app_registration: 1000 * 10u128.pow(TOKEN_DECIMALS as u32), // 1000 WILL
             subgrove_registration: 100 * 10u128.pow(TOKEN_DECIMALS as u32), // 100 WILL
-            base_tx_cost: 24_000_000_000_000_000,      // 0.024 WILL
-            cost_per_byte: 86_400_000_000_000,          // 0.0000864 WILL
-            query_fee: 4_000_000_000_000_000,           // 0.004 WILL
-            transfer_fee_percentage: 10,                // 0.1%
-            max_tx_size_bytes: 1_048_576,               // 1 MB
-            max_data_payload_bytes: 524_288,            // 512 KB
+            base_tx_cost: 24_000_000_000_000_000,                // 0.024 WILL
+            cost_per_byte: 86_400_000_000_000,                   // 0.0000864 WILL
+            query_fee: 4_000_000_000_000_000,                    // 0.004 WILL
+            transfer_fee_percentage: 10,                         // 0.1%
+            max_tx_size_bytes: 1_048_576,                        // 1 MB
+            max_data_payload_bytes: 524_288,                     // 512 KB
         }
     }
 }
