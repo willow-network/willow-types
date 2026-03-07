@@ -57,7 +57,7 @@ pub struct CollectQueryFeesTx {
 ///
 /// ## Workflow
 ///
-/// 1. Validator detects potential fraud (e.g., invalid Ethereum proof, failed re-execution)
+/// 1. Validator detects potential fraud (e.g., invalid Ethereum proof, failed verification)
 /// 2. Validator creates `SlashIndexerTx` with evidence
 /// 3. Transaction is broadcast and included in a block proposal
 /// 4. All validators verify the evidence during consensus

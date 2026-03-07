@@ -205,7 +205,7 @@ pub enum TransactionType {
 /// ## Without GKR Proof (`gkr_proof` is `None`)
 ///
 /// Re-execution verification at the subgrove's configured sampling rate:
-/// - **ConsensusExecution**: 100% re-execution
+/// - **ConsensusExecution**: 100% execution by validators
 /// - **IndexerExecution**: Sampling-based (e.g., 5%)
 ///
 /// Fee split varies by execution mode (see `get_fee_distribution_percentages`).
@@ -238,7 +238,8 @@ pub struct IndexedBlockSubmissionTx {
     pub block_header: BlockHeaderCommitment,
     /// Optional GKR proof of correct transformation.
     /// When present, consensus verifies the proof cryptographically.
-    /// When absent, consensus uses re-execution (at the subgrove's sampling rate).
+    /// When absent, consensus uses direct execution or sampling-based re-execution
+    /// (depending on the subgrove's execution mode).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gkr_proof: Option<GkrProofData>,
     /// MPT proofs proving each input event exists in the block's receipts.

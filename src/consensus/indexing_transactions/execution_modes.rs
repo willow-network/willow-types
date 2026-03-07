@@ -15,7 +15,7 @@ use super::gkr_proof_types::GkrProofConfig;
 /// ## Modes
 ///
 /// - **ConsensusExecution** (default): Indexers submit raw blockchain data,
-///   validators execute the transformation. Highest trust.
+///   validators execute the transformation. Simplest and most direct.
 ///
 /// - **IndexerExecution**: Indexers perform transformation and submit results,
 ///   validators randomly sample and re-execute to verify correctness.
@@ -35,10 +35,10 @@ use super::gkr_proof_types::GkrProofConfig;
 ///
 /// | Mode              | Verification Cost | Trust Assumption                |
 /// |-------------------|-------------------|---------------------------------|
-/// | ConsensusExecution| Medium            | Cryptographic (direct execution)|
+/// | ConsensusExecution| Medium            | BFT (2/3+ honest validators)    |
 /// | IndexerExecution  | Low-Medium        | Economic (sampling + slashing)  |
 /// | TeeExecution      | Low               | Hardware (Intel/AWS attestation)|
-/// | GkrExecution      | High              | Cryptographic (GKR proof)       |
+/// | GkrExecution      | High              | Cryptographic (mathematical)    |
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum ExecutionMode {
     /// Validators execute all transformations. Indexers submit raw data only.
@@ -51,7 +51,7 @@ pub enum ExecutionMode {
     /// - Indexers submit raw data with Merkle proofs to consensus
     /// - Validators execute the subgrove's transformation rules directly
     /// - No sampling, no probabilistic verification - consensus does all the work
-    /// - Highest trust: data is transformed by the consensus layer itself
+    /// - Simplest trust model: data is transformed by the consensus layer itself
     ///
     /// Best for: Most use cases, especially when transformations are simple
     /// (parsing, filtering, basic decoding).
