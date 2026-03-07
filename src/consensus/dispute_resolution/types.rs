@@ -16,6 +16,19 @@ pub const BISECTION_RESPONSE_DEADLINE_BLOCKS: u64 = 200;
 /// Number of blocks to wait before auto-adjudicating a ready dispute.
 pub const ADJUDICATION_TIMEOUT_BLOCKS: u64 = 100;
 
+// ============================================================================
+// Commitment Dispute Constants (for private subgrove challenge-response)
+// ============================================================================
+
+/// Bond required from the challenger to open a commitment dispute.
+pub const COMMITMENT_DISPUTE_BOND: u128 = 100 * ONE_WILL;
+
+/// Number of blocks the provider has to respond with a GroveDB proof.
+pub const COMMITMENT_DISPUTE_RESPONSE_BLOCKS: u64 = 200;
+
+/// Percentage of stake slashed from the provider on losing a commitment dispute.
+pub const COMMITMENT_DISPUTE_SLASH_BPS: u32 = 2000;
+
 /// The winner of a dispute.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DisputeWinner {
@@ -154,4 +167,75 @@ pub struct IndexerDisputeStats {
     pub disputes_won_as_challenger: u64,
     /// Disputes lost when challenging others' checkpoints.
     pub disputes_lost_as_challenger: u64,
+}
+
+// ============================================================================
+// Commitment Disputes (for private subgrove challenge-response)
+// ============================================================================
+
+/// A challenge-response dispute against a private subgrove commitment.
+///
+/// A key grantee challenges the provider to prove that their committed state_root
+/// is backed by a real, consistent GroveDB tree. The provider must respond with
+/// a valid GroveDB proof for the challenged path+key within the response deadline.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommitmentDispute {
+    /// Unique dispute ID: SHA256(subgrove_key || challenger_did || block_height).
+    pub dispute_id: [u8; 32],
+    /// The subgrove being disputed ("app_id:subgrove_id").
+    pub subgrove_key: String,
+    /// DID of the provider whose commitment is disputed.
+    pub provider_did: String,
+    /// DID of the challenger (must be a current key grantee).
+    pub challenger_did: String,
+    /// The state_root being disputed (from the latest on-chain commitment).
+    pub committed_state_root: [u8; 32],
+    /// GroveDB path to prove (within the subgrove's data tree).
+    pub challenge_path: Vec<Vec<u8>>,
+    /// Specific key at that path to prove.
+    pub challenge_key: Vec<u8>,
+    /// Bond amount held from the challenger.
+    pub bond: u128,
+    /// Current status of the dispute.
+    pub status: CommitmentDisputeStatus,
+    /// Block height when the dispute was opened.
+    pub opened_at_block: u64,
+    /// Deadline block for the provider to respond.
+    pub response_deadline: u64,
+}
+
+impl CommitmentDispute {
+    /// Computes a unique dispute ID from subgrove key, challenger DID, and block height.
+    pub fn compute_dispute_id(
+        subgrove_key: &str,
+        challenger_did: &str,
+        block_height: u64,
+    ) -> [u8; 32] {
+        let mut hasher = Sha256::new();
+        hasher.update(subgrove_key.as_bytes());
+        hasher.update(challenger_did.as_bytes());
+        hasher.update(block_height.to_le_bytes());
+        hasher.finalize().into()
+    }
+
+    /// Returns true if the dispute is resolved.
+    pub fn is_resolved(&self) -> bool {
+        matches!(self.status, CommitmentDisputeStatus::Resolved { .. })
+    }
+}
+
+/// Status of a commitment dispute.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum CommitmentDisputeStatus {
+    /// Waiting for the provider to respond with a GroveDB proof.
+    AwaitingResponse,
+    /// Dispute has been resolved.
+    Resolved {
+        /// The winning party.
+        winner: DisputeWinner,
+        /// Block height when resolved.
+        resolved_at_block: u64,
+        /// Amount slashed from the provider (0 if challenger lost).
+        slash_amount: u128,
+    },
 }

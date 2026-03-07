@@ -84,6 +84,10 @@ pub enum Transaction {
     AdjudicateBisection(super::dispute_resolution::AdjudicateBisectionTx),
     /// Set indexer's availability for dispute resolution work.
     SetDisputeAvailability(super::dispute_resolution::SetDisputeAvailabilityTx),
+    /// Open a commitment dispute against a private subgrove provider.
+    OpenCommitmentDispute(super::dispute_resolution::OpenCommitmentDisputeTx),
+    /// Respond to a commitment dispute with a GroveDB proof.
+    RespondCommitmentDispute(super::dispute_resolution::RespondCommitmentDisputeTx),
 
     // TEE enclave governance transactions
     /// Add an approved TEE enclave image (admin only).

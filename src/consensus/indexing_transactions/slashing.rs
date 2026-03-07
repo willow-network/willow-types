@@ -21,6 +21,8 @@ pub enum SlashingViolation {
     MaliciousBehavior,
     /// Provider failed to submit required commitments for a private subgrove.
     CommitmentLivenessViolation,
+    /// Provider's committed state_root was proven inconsistent via commitment dispute.
+    CommitmentIntegrityViolation,
 }
 
 /// Transaction for an indexer to collect accumulated query fees.
