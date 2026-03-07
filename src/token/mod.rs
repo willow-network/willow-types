@@ -406,8 +406,8 @@ pub struct ReadPaymentRecord {
 // Staking Types
 // ============================================================================
 
-/// Minimum stake required to become a validator (10,000 WILL).
-pub const MIN_VALIDATOR_STAKE: u128 = 10_000 * 10u128.pow(18);
+/// Minimum stake required to become a validator (100,000 WILL).
+pub const MIN_VALIDATOR_STAKE: u128 = 100_000 * 10u128.pow(18);
 /// Unbonding period duration (7 days).
 pub const UNBONDING_PERIOD_SECONDS: u64 = 7 * 24 * 3600;
 

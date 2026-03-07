@@ -43,11 +43,11 @@ pub const WILL_DECIMALS: u8 = 18;
 // Common stake amounts
 // ============================================================================
 
-/// Minimum indexer stake: 100,000 WILL
-pub const MIN_INDEXER_STAKE: u128 = 100 * ONE_KILO_WILL;
+/// Minimum indexer stake: 10,000 WILL
+pub const MIN_INDEXER_STAKE: u128 = 10 * ONE_KILO_WILL;
 
-/// Minimum validator stake: 10,000 WILL
-pub const MIN_VALIDATOR_STAKE: u128 = 10 * ONE_KILO_WILL;
+/// Minimum validator stake: 100,000 WILL
+pub const MIN_VALIDATOR_STAKE: u128 = 100 * ONE_KILO_WILL;
 
 // ============================================================================
 // Common fee amounts
@@ -204,7 +204,7 @@ mod tests {
     fn test_kilo_will_conversion() {
         assert_eq!(kilo_will(1), ONE_KILO_WILL);
         assert_eq!(kilo_will(100), 100 * ONE_KILO_WILL);
-        assert_eq!(kilo_will(100), MIN_INDEXER_STAKE);
+        assert_eq!(kilo_will(10), MIN_INDEXER_STAKE);
     }
 
     #[test]
@@ -236,7 +236,7 @@ mod tests {
 
     #[test]
     fn test_stake_constants() {
-        assert_eq!(MIN_INDEXER_STAKE, kilo_will(100));
-        assert_eq!(MIN_VALIDATOR_STAKE, kilo_will(10));
+        assert_eq!(MIN_INDEXER_STAKE, kilo_will(10));
+        assert_eq!(MIN_VALIDATOR_STAKE, kilo_will(100));
     }
 }
