@@ -214,6 +214,20 @@ impl TokenOperations {
         fee_schedule.base_tx_cost + estimated_bytes as u128 * fee_schedule.cost_per_byte
     }
 
+    /// Calculates the write fee with retention-based storage cost discount.
+    ///
+    /// The per-byte component is scaled by the retention window's storage cost fraction.
+    /// The base_tx_cost is always charged in full (covers consensus processing).
+    pub fn calculate_write_fee_with_retention(
+        bytes: u64,
+        fee_schedule: &FeeSchedule,
+        retention: &crate::consensus::indexing_transactions::RetentionWindow,
+    ) -> u128 {
+        let (num, den) = retention.storage_cost_fraction();
+        let storage_cost = bytes as u128 * fee_schedule.cost_per_byte * num / den;
+        fee_schedule.base_tx_cost + storage_cost
+    }
+
     /// Validates that a balance has sufficient available funds.
     pub fn validate_balance(balance: &Balance, required_amount: u128) -> Result<(), String> {
         if balance.available < required_amount {

@@ -36,6 +36,10 @@ pub enum SubgroveMode {
         execution_mode: ExecutionMode,
         /// Configuration for indexer requirements and rewards.
         indexer_config: IndexerConfig,
+        /// Retention window for real-time indexed data on consensus nodes.
+        /// Defaults to Indefinite for backward compatibility.
+        #[serde(default)]
+        retention_window: RetentionWindow,
     },
 }
 
@@ -119,6 +123,87 @@ impl CheckpointVerificationConfig {
     pub fn with_tee(tee_type: crate::tee::TeeType) -> Self {
         CheckpointVerificationConfig {
             required_tee: Some(tee_type),
+        }
+    }
+}
+
+/// How long real-time indexed data is retained on consensus nodes.
+/// After the retention window expires (and a trusted checkpoint covers the blocks),
+/// data is pruned from consensus and queries route to indexer nodes.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum RetentionWindow {
+    /// Retain for N consensus blocks. Min: 100, Max: 15,768,000 (~1 year at 2s blocks).
+    Blocks(u64),
+    /// Retain for N seconds. Min: 300 (5 minutes), Max: 31,536,000 (1 year).
+    Seconds(u64),
+    /// Never prune (current behavior). Priced at ~10-year storage horizon.
+    Indefinite,
+}
+
+pub const MIN_RETENTION_BLOCKS: u64 = 100;
+pub const MAX_RETENTION_BLOCKS: u64 = 15_768_000;
+pub const MIN_RETENTION_SECONDS: u64 = 300;
+pub const MAX_RETENTION_SECONDS: u64 = 31_536_000;
+
+/// 10-year storage horizon in seconds (basis for current cost_per_byte pricing).
+pub const STORAGE_HORIZON_SECONDS: u64 = 315_576_000;
+/// Assumed block time in seconds for cost calculations.
+pub const ASSUMED_BLOCK_TIME_SECONDS: u64 = 2;
+
+impl Default for RetentionWindow {
+    fn default() -> Self {
+        RetentionWindow::Indefinite
+    }
+}
+
+impl RetentionWindow {
+    /// Validate that the retention window parameters are within bounds.
+    pub fn validate(&self) -> Result<(), String> {
+        match self {
+            RetentionWindow::Blocks(n) => {
+                if *n < MIN_RETENTION_BLOCKS {
+                    return Err(format!(
+                        "Retention blocks {} is below minimum {}",
+                        n, MIN_RETENTION_BLOCKS
+                    ));
+                }
+                if *n > MAX_RETENTION_BLOCKS {
+                    return Err(format!(
+                        "Retention blocks {} exceeds maximum {}",
+                        n, MAX_RETENTION_BLOCKS
+                    ));
+                }
+            }
+            RetentionWindow::Seconds(n) => {
+                if *n < MIN_RETENTION_SECONDS {
+                    return Err(format!(
+                        "Retention seconds {} is below minimum {}",
+                        n, MIN_RETENTION_SECONDS
+                    ));
+                }
+                if *n > MAX_RETENTION_SECONDS {
+                    return Err(format!(
+                        "Retention seconds {} exceeds maximum {}",
+                        n, MAX_RETENTION_SECONDS
+                    ));
+                }
+            }
+            RetentionWindow::Indefinite => {}
+        }
+        Ok(())
+    }
+
+    /// Returns the storage cost multiplier as a fraction (numerator, denominator).
+    /// Based on the 10-year (315,576,000 second) storage horizon that cost_per_byte prices in.
+    /// Indefinite = 1/1 (full 10-year price, current behavior).
+    pub fn storage_cost_fraction(&self) -> (u128, u128) {
+        match self {
+            RetentionWindow::Indefinite => (1, 1),
+            RetentionWindow::Seconds(n) => (*n as u128, STORAGE_HORIZON_SECONDS as u128),
+            RetentionWindow::Blocks(n) => (
+                *n as u128 * ASSUMED_BLOCK_TIME_SECONDS as u128,
+                STORAGE_HORIZON_SECONDS as u128,
+            ),
         }
     }
 }

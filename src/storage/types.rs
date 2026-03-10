@@ -110,6 +110,11 @@ pub struct SubgroveRegistration {
     /// commitments go on-chain.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub privacy: Option<PrivacyConfig>,
+    /// Retention window for real-time indexed data on consensus nodes.
+    /// Only meaningful for BlockchainIndexing subgroves.
+    #[serde(default)]
+    pub retention_window:
+        crate::consensus::indexing_transactions::RetentionWindow,
     /// Unix timestamp of creation.
     pub created_at: u64,
     /// Unix timestamp of last update.
@@ -175,6 +180,10 @@ pub struct SubgroveIndexingState {
     /// The state root from the trusted checkpoint.
     /// New nodes can sync state from this root.
     pub trusted_state_root: Option<[u8; 32]>,
+    /// Highest block number that has been pruned from consensus.
+    /// Blocks <= this are only available from indexer nodes.
+    #[serde(default)]
+    pub pruned_up_to_block: Option<u64>,
 }
 
 impl SubgroveIndexingState {
@@ -191,6 +200,7 @@ impl SubgroveIndexingState {
             phase: IndexingPhase::Realtime,
             trusted_at: Some(trusted_at),
             trusted_state_root: Some(state_root),
+            pruned_up_to_block: None,
         }
     }
 
