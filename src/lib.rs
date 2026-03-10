@@ -21,6 +21,6 @@ pub use error::{
     ApiError, ConfigError, ConsensusError, IndexingError, LightClientError, NetworkError,
     StorageError, WillowError,
 };
-pub use reputation::{IndexerProfile, IndexerReputation, OperatorEntity, ReputationTier};
+pub use reputation::{IndexerProfile, IndexerReputation, OperatorEntity};
 pub use tee::{TeeAttestation, TeeCapability, TeeType, TeeVerificationError};
 pub use token::{Balance, FeeSchedule, ReadPricing, TokenState};

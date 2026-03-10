@@ -7,9 +7,6 @@ use sha2::{Digest, Sha256};
 /// This is returned if the challenger wins, forfeited if they lose.
 pub const DISPUTE_BOND: u128 = 100 * ONE_WILL;
 
-/// Percentage of stake slashed from the loser (in basis points, 2000 = 20%).
-pub const DISPUTE_SLASH_BPS: u32 = 2000;
-
 /// Number of blocks allowed per bisection round response.
 pub const BISECTION_RESPONSE_DEADLINE_BLOCKS: u64 = 200;
 
@@ -25,9 +22,6 @@ pub const COMMITMENT_DISPUTE_BOND: u128 = 100 * ONE_WILL;
 
 /// Number of blocks the provider has to respond with a GroveDB proof.
 pub const COMMITMENT_DISPUTE_RESPONSE_BLOCKS: u64 = 200;
-
-/// Percentage of stake slashed from the provider on losing a commitment dispute.
-pub const COMMITMENT_DISPUTE_SLASH_BPS: u32 = 2000;
 
 /// The winner of a dispute.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
 
 use super::data_updates::EventInclusionProof;
-use crate::token::units::ONE_WILL;
+use crate::token::units::{
+    ONE_WILL, SLASH_COMMITMENT_INTEGRITY, SLASH_COMMITMENT_LIVENESS, SLASH_INCORRECT_STATE,
+    SLASH_INVALID_EVENT_PROOF, SLASH_MALICIOUS_BEHAVIOR, SLASH_UNAVAILABILITY,
+};
 
 /// Minimum bond required when proposing a slash. Forfeited if evidence is invalid.
 /// Set lower than the dispute bond (100 WILL) since evidence verification is
@@ -23,6 +26,97 @@ pub enum SlashingViolation {
     CommitmentLivenessViolation,
     /// Provider's committed state_root was proven inconsistent via commitment dispute.
     CommitmentIntegrityViolation,
+}
+
+impl SlashingViolation {
+    /// Returns the fixed slash amount for this violation type.
+    pub fn slash_amount(&self) -> u128 {
+        match self {
+            SlashingViolation::Unavailability => SLASH_UNAVAILABILITY,
+            SlashingViolation::CommitmentLivenessViolation => SLASH_COMMITMENT_LIVENESS,
+            SlashingViolation::InvalidEventProof => SLASH_INVALID_EVENT_PROOF,
+            SlashingViolation::IncorrectStateComputation => SLASH_INCORRECT_STATE,
+            SlashingViolation::CommitmentIntegrityViolation => SLASH_COMMITMENT_INTEGRITY,
+            SlashingViolation::MaliciousBehavior => SLASH_MALICIOUS_BEHAVIOR,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::token::units::*;
+
+    #[test]
+    fn test_each_violation_returns_correct_fixed_amount() {
+        assert_eq!(
+            SlashingViolation::Unavailability.slash_amount(),
+            SLASH_UNAVAILABILITY
+        );
+        assert_eq!(
+            SlashingViolation::CommitmentLivenessViolation.slash_amount(),
+            SLASH_COMMITMENT_LIVENESS
+        );
+        assert_eq!(
+            SlashingViolation::InvalidEventProof.slash_amount(),
+            SLASH_INVALID_EVENT_PROOF
+        );
+        assert_eq!(
+            SlashingViolation::IncorrectStateComputation.slash_amount(),
+            SLASH_INCORRECT_STATE
+        );
+        assert_eq!(
+            SlashingViolation::CommitmentIntegrityViolation.slash_amount(),
+            SLASH_COMMITMENT_INTEGRITY
+        );
+        assert_eq!(
+            SlashingViolation::MaliciousBehavior.slash_amount(),
+            SLASH_MALICIOUS_BEHAVIOR
+        );
+    }
+
+    #[test]
+    fn test_operational_violations_are_small() {
+        // Operational violations should be 500 WILL each
+        assert_eq!(SlashingViolation::Unavailability.slash_amount(), 500 * ONE_WILL);
+        assert_eq!(
+            SlashingViolation::CommitmentLivenessViolation.slash_amount(),
+            500 * ONE_WILL
+        );
+    }
+
+    #[test]
+    fn test_fraud_violations_are_severe() {
+        // Fraud violations should be 5,000-10,000 WILL
+        let fraud_violations = [
+            SlashingViolation::InvalidEventProof,
+            SlashingViolation::IncorrectStateComputation,
+            SlashingViolation::CommitmentIntegrityViolation,
+        ];
+        for v in &fraud_violations {
+            assert_eq!(v.slash_amount(), 5 * ONE_KILO_WILL);
+        }
+        assert_eq!(
+            SlashingViolation::MaliciousBehavior.slash_amount(),
+            10 * ONE_KILO_WILL
+        );
+    }
+
+    #[test]
+    fn test_malicious_behavior_equals_min_indexer_stake() {
+        // A single MaliciousBehavior slash should wipe out exactly the minimum stake
+        assert_eq!(
+            SlashingViolation::MaliciousBehavior.slash_amount(),
+            MIN_INDEXER_STAKE
+        );
+    }
+
+    #[test]
+    fn test_twenty_unavailability_incidents_equal_min_stake() {
+        // 20 × 500 WILL = 10,000 WILL = MIN_INDEXER_STAKE
+        let total = 20 * SlashingViolation::Unavailability.slash_amount();
+        assert_eq!(total, MIN_INDEXER_STAKE);
+    }
 }
 
 /// Transaction for an indexer to collect accumulated query fees.

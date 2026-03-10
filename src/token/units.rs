@@ -50,6 +50,35 @@ pub const MIN_INDEXER_STAKE: u128 = 10 * ONE_KILO_WILL;
 pub const MIN_VALIDATOR_STAKE: u128 = 100 * ONE_KILO_WILL;
 
 // ============================================================================
+// Slashing constants
+// ============================================================================
+
+/// Fixed slash for validator double signing: 50,000 WILL (50% of fixed stake).
+/// Double signing risks chain forks; severe but not full forfeiture since it
+/// can happen from accidental misconfiguration.
+pub const DOUBLE_SIGN_SLASH_AMOUNT: u128 = 50 * ONE_KILO_WILL;
+
+// --- Indexer slashing: fixed amounts per violation ---
+
+/// Operational: indexer unavailability (500 WILL per incident)
+pub const SLASH_UNAVAILABILITY: u128 = 500 * ONE_WILL;
+
+/// Operational: missed commitment window (500 WILL per incident)
+pub const SLASH_COMMITMENT_LIVENESS: u128 = 500 * ONE_WILL;
+
+/// Fraud: invalid Ethereum event proof (5,000 WILL)
+pub const SLASH_INVALID_EVENT_PROOF: u128 = 5 * ONE_KILO_WILL;
+
+/// Fraud: incorrect state computation (5,000 WILL)
+pub const SLASH_INCORRECT_STATE: u128 = 5 * ONE_KILO_WILL;
+
+/// Fraud: commitment integrity violation (5,000 WILL)
+pub const SLASH_COMMITMENT_INTEGRITY: u128 = 5 * ONE_KILO_WILL;
+
+/// Fraud: malicious behavior (10,000 WILL — full min indexer stake)
+pub const SLASH_MALICIOUS_BEHAVIOR: u128 = 10 * ONE_KILO_WILL;
+
+// ============================================================================
 // Common fee amounts
 // ============================================================================
 

@@ -7,11 +7,14 @@
 //! # Overview
 //!
 //! The reputation system tracks:
-//! - **Reputation scores**: Composite scores based on indexer performance
 //! - **Performance metrics**: Detailed statistics about indexer behavior
 //! - **Profiles**: Identity and infrastructure information
 //! - **Operator entities**: Voluntary grouping of indexers under one operator
 //! - **Correlation flags**: Detected similarities between indexers
+//!
+//! Consumers of reputation data query the raw metrics directly rather than
+//! relying on a derived composite score. This avoids opinionated scoring
+//! formulas and lets each consumer weight metrics as they see fit.
 //!
 //! # Sybil Resistance
 //!
@@ -28,21 +31,15 @@ use serde::{Deserialize, Serialize};
 /// System-level indexer reputation stored in GroveDB.
 ///
 /// This is the authoritative reputation record, verified by consensus
-/// and queryable with cryptographic proofs.
+/// and queryable with cryptographic proofs. Raw metrics are stored
+/// directly; consumers derive their own scoring from the metrics.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IndexerReputation {
     /// The indexer's DID (e.g., "did:willow:abc123")
     pub indexer_did: String,
 
-    /// Composite reputation score (0-10000 basis points = 0.00%-100.00%)
-    /// New indexers start at 5000 (50%)
-    pub score: u32,
-
-    /// Detailed metrics that contribute to the score
+    /// Detailed performance metrics
     pub metrics: ReputationMetrics,
-
-    /// Reputation tier derived from score
-    pub tier: ReputationTier,
 
     /// When the indexer first registered (Unix timestamp)
     pub registered_at: u64,
@@ -59,19 +56,11 @@ impl IndexerReputation {
     pub fn new(indexer_did: String, registered_at: u64, block_height: u64) -> Self {
         Self {
             indexer_did,
-            score: 5000, // Start at 50%
             metrics: ReputationMetrics::default(),
-            tier: ReputationTier::Newcomer,
             registered_at,
             last_updated: registered_at,
             last_updated_block: block_height,
         }
-    }
-
-    /// Recalculates the score from metrics and updates the tier.
-    pub fn recalculate(&mut self) {
-        self.score = self.metrics.calculate_score();
-        self.tier = ReputationTier::from_score(self.score);
     }
 }
 
@@ -140,62 +129,6 @@ pub struct ReputationMetrics {
 }
 
 impl ReputationMetrics {
-    /// Calculate composite reputation score from metrics.
-    ///
-    /// # Score Components (weights)
-    ///
-    /// | Component | Weight | Max Points |
-    /// |-----------|--------|------------|
-    /// | Checkpoint success rate | 40% | 4000 |
-    /// | Verification accuracy | 20% | 2000 |
-    /// | Availability reliability | 20% | 2000 |
-    /// | Longevity & consistency | 10% | 1000 |
-    /// | Economic health (no slashing) | 10% | 1000 |
-    pub fn calculate_score(&self) -> u32 {
-        let mut score = 0u32;
-
-        // 1. Checkpoint success rate (40% weight = 4000 max points)
-        if self.checkpoints_submitted > 0 {
-            let success_rate =
-                (self.checkpoints_verified as f64) / (self.checkpoints_submitted as f64);
-            score += (success_rate * 4000.0) as u32;
-        } else {
-            // No checkpoints yet - give neutral score for this component
-            score += 2000; // 50% of this category
-        }
-
-        // 2. Verification accuracy (20% weight = 2000 max points)
-        if self.verifications_performed > 0 {
-            let accuracy =
-                (self.verifications_correct as f64) / (self.verifications_performed as f64);
-            score += (accuracy * 2000.0) as u32;
-        } else {
-            score += 1000; // neutral if not a verifier yet
-        }
-
-        // 3. Availability reliability (20% weight = 2000 max points)
-        let total_proofs = self.availability_proofs_submitted + self.availability_proofs_missed;
-        if total_proofs > 0 {
-            let reliability = (self.availability_proofs_submitted as f64) / (total_proofs as f64);
-            score += (reliability * 2000.0) as u32;
-        } else {
-            score += 1000;
-        }
-
-        // 4. Longevity & consistency (10% weight = 1000 max points)
-        // Based on active days and current streak
-        let longevity_score = (self.active_days.min(365) as f64 / 365.0) * 500.0;
-        let streak_score = (self.current_streak.min(1000) as f64 / 1000.0) * 500.0;
-        score += (longevity_score + streak_score) as u32;
-
-        // 5. Economic health (10% weight = 1000 max points)
-        // Penalize based on slashing history
-        let slash_penalty = (self.slashing_count).min(10) * 100;
-        score += 1000u32.saturating_sub(slash_penalty);
-
-        score.min(10000)
-    }
-
     /// Returns the checkpoint success rate as a percentage (0.0 - 100.0).
     pub fn checkpoint_success_rate(&self) -> f64 {
         if self.checkpoints_submitted == 0 {
@@ -210,66 +143,6 @@ impl ReputationMetrics {
             return 0.0;
         }
         (self.verifications_correct as f64 / self.verifications_performed as f64) * 100.0
-    }
-}
-
-/// Reputation tiers with clear thresholds.
-///
-/// Tiers provide a human-readable categorization of indexer trustworthiness
-/// and can be used to filter indexers in the marketplace.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub enum ReputationTier {
-    /// 0-1999: New or problematic indexer
-    Untrusted,
-    /// 2000-4999: Building reputation
-    #[default]
-    Newcomer,
-    /// 5000-6999: Established indexer
-    Established,
-    /// 7000-8499: Reliable performer
-    Trusted,
-    /// 8500-9499: Excellent track record
-    Elite,
-    /// 9500-10000: Top-tier, highest trust level
-    Sovereign,
-}
-
-impl ReputationTier {
-    /// Determines the tier for a given score.
-    pub fn from_score(score: u32) -> Self {
-        match score {
-            0..=1999 => Self::Untrusted,
-            2000..=4999 => Self::Newcomer,
-            5000..=6999 => Self::Established,
-            7000..=8499 => Self::Trusted,
-            8500..=9499 => Self::Elite,
-            9500..=10000 => Self::Sovereign,
-            _ => Self::Untrusted,
-        }
-    }
-
-    /// Returns the minimum score required for this tier.
-    pub fn min_score(&self) -> u32 {
-        match self {
-            Self::Untrusted => 0,
-            Self::Newcomer => 2000,
-            Self::Established => 5000,
-            Self::Trusted => 7000,
-            Self::Elite => 8500,
-            Self::Sovereign => 9500,
-        }
-    }
-
-    /// Returns a human-readable name for the tier.
-    pub fn name(&self) -> &'static str {
-        match self {
-            Self::Untrusted => "Untrusted",
-            Self::Newcomer => "Newcomer",
-            Self::Established => "Established",
-            Self::Trusted => "Trusted",
-            Self::Elite => "Elite",
-            Self::Sovereign => "Sovereign",
-        }
     }
 }
 
@@ -289,10 +162,6 @@ pub struct ReputationEvent {
     pub indexer_did: String,
     /// Type of event
     pub event_type: ReputationEventType,
-    /// Score change (positive or negative)
-    pub score_delta: i32,
-    /// Score after this event
-    pub new_score: u32,
     /// Block height when this occurred
     pub block_height: u64,
     /// Timestamp (Unix seconds)
@@ -332,13 +201,6 @@ pub enum ReputationEventType {
     // === Neutral/Administrative ===
     /// Indexer first registered
     Registered,
-    /// Tier changed
-    TierChanged {
-        old_tier: ReputationTier,
-        new_tier: ReputationTier,
-    },
-    /// Periodic decay applied (for inactive indexers)
-    DecayApplied { decay_amount: u32 },
 
     // === Dispute Resolution Events ===
     /// Selected for dispute verification but failed to respond in time
@@ -612,12 +474,6 @@ impl OperatorEntity {
 pub struct AggregateReputation {
     /// Number of indexers in this entity
     pub indexer_count: u32,
-    /// Average reputation score across all indexers
-    pub average_score: u32,
-    /// Minimum score among all indexers
-    pub min_score: u32,
-    /// Maximum score among all indexers
-    pub max_score: u32,
     /// Total blocks indexed by all indexers
     pub total_blocks_indexed: u64,
     /// Combined slashing events across all indexers
@@ -633,14 +489,8 @@ impl AggregateReputation {
             return Self::default();
         }
 
-        let scores: Vec<u32> = reputations.iter().map(|r| r.score).collect();
-        let total_score: u32 = scores.iter().sum();
-
         Self {
             indexer_count: reputations.len() as u32,
-            average_score: total_score / reputations.len() as u32,
-            min_score: *scores.iter().min().unwrap_or(&0),
-            max_score: *scores.iter().max().unwrap_or(&0),
             total_blocks_indexed: reputations
                 .iter()
                 .map(|r| r.metrics.total_blocks_indexed)
@@ -662,12 +512,6 @@ impl AggregateReputation {
 /// Filter criteria for querying indexers by reputation.
 #[derive(Debug, Clone, Default)]
 pub struct ReputationFilter {
-    /// Minimum reputation score
-    pub min_score: Option<u32>,
-    /// Maximum reputation score
-    pub max_score: Option<u32>,
-    /// Required tier (or higher)
-    pub min_tier: Option<ReputationTier>,
     /// Exclude indexers with these correlation flags
     pub exclude_correlations: Vec<CorrelationFlagType>,
     /// Exclude indexers from these operator entities
@@ -681,25 +525,6 @@ pub struct ReputationFilter {
 impl ReputationFilter {
     /// Checks if an indexer passes this filter.
     pub fn matches(&self, reputation: &IndexerReputation, profile: &IndexerProfile) -> bool {
-        // Score bounds
-        if let Some(min) = self.min_score {
-            if reputation.score < min {
-                return false;
-            }
-        }
-        if let Some(max) = self.max_score {
-            if reputation.score > max {
-                return false;
-            }
-        }
-
-        // Tier requirement
-        if let Some(min_tier) = self.min_tier {
-            if reputation.score < min_tier.min_score() {
-                return false;
-            }
-        }
-
         // Correlation exclusions
         for exclude_type in &self.exclude_correlations {
             for flag in &profile.correlation_flags {
@@ -740,81 +565,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_reputation_tier_from_score() {
-        assert_eq!(ReputationTier::from_score(0), ReputationTier::Untrusted);
-        assert_eq!(ReputationTier::from_score(1999), ReputationTier::Untrusted);
-        assert_eq!(ReputationTier::from_score(2000), ReputationTier::Newcomer);
-        assert_eq!(
-            ReputationTier::from_score(5000),
-            ReputationTier::Established
-        );
-        assert_eq!(ReputationTier::from_score(7000), ReputationTier::Trusted);
-        assert_eq!(ReputationTier::from_score(8500), ReputationTier::Elite);
-        assert_eq!(ReputationTier::from_score(9500), ReputationTier::Sovereign);
-        assert_eq!(ReputationTier::from_score(10000), ReputationTier::Sovereign);
-    }
-
-    #[test]
-    fn test_new_indexer_starts_as_newcomer() {
+    fn test_new_indexer_default_metrics() {
         let reputation = IndexerReputation::new("did:willow:test".to_string(), 1000, 1);
-        assert_eq!(reputation.score, 5000);
-        assert_eq!(reputation.tier, ReputationTier::Newcomer);
-    }
-
-    #[test]
-    fn test_metrics_score_calculation() {
-        let mut metrics = ReputationMetrics::default();
-
-        // Perfect checkpoint record
-        metrics.checkpoints_submitted = 100;
-        metrics.checkpoints_verified = 100;
-
-        // Perfect verification record
-        metrics.verifications_performed = 50;
-        metrics.verifications_correct = 50;
-
-        // Perfect availability
-        metrics.availability_proofs_submitted = 30;
-        metrics.availability_proofs_missed = 0;
-
-        // Good longevity
-        metrics.active_days = 365;
-        metrics.current_streak = 1000;
-
-        // No slashing
-        metrics.slashing_count = 0;
-
-        let score = metrics.calculate_score();
-        assert_eq!(score, 10000); // Perfect score
-    }
-
-    #[test]
-    fn test_metrics_score_with_failures() {
-        let mut metrics = ReputationMetrics::default();
-
-        // 80% checkpoint success
-        metrics.checkpoints_submitted = 100;
-        metrics.checkpoints_verified = 80;
-
-        // 90% verification accuracy
-        metrics.verifications_performed = 100;
-        metrics.verifications_correct = 90;
-
-        // 70% availability
-        metrics.availability_proofs_submitted = 70;
-        metrics.availability_proofs_missed = 30;
-
-        // Some activity
-        metrics.active_days = 100;
-        metrics.current_streak = 50;
-
-        // One slashing event
-        metrics.slashing_count = 1;
-
-        let score = metrics.calculate_score();
-        // Should be less than perfect but still reasonable
-        assert!(score > 5000);
-        assert!(score < 9000);
+        assert_eq!(reputation.metrics.total_blocks_indexed, 0);
+        assert_eq!(reputation.metrics.slashing_count, 0);
+        assert_eq!(reputation.registered_at, 1000);
+        assert_eq!(reputation.last_updated_block, 1);
     }
 
     #[test]
@@ -848,13 +604,11 @@ mod tests {
     fn test_aggregate_reputation() {
         let rep1 = IndexerReputation {
             indexer_did: "did:willow:1".to_string(),
-            score: 8000,
             metrics: ReputationMetrics {
                 total_blocks_indexed: 1000,
                 slashing_count: 0,
                 ..Default::default()
             },
-            tier: ReputationTier::Trusted,
             registered_at: 1000,
             last_updated: 2000,
             last_updated_block: 100,
@@ -862,13 +616,11 @@ mod tests {
 
         let rep2 = IndexerReputation {
             indexer_did: "did:willow:2".to_string(),
-            score: 6000,
             metrics: ReputationMetrics {
                 total_blocks_indexed: 500,
                 slashing_count: 1,
                 ..Default::default()
             },
-            tier: ReputationTier::Established,
             registered_at: 1500,
             last_updated: 2000,
             last_updated_block: 100,
@@ -877,11 +629,20 @@ mod tests {
         let aggregate = AggregateReputation::calculate(&[rep1, rep2]);
 
         assert_eq!(aggregate.indexer_count, 2);
-        assert_eq!(aggregate.average_score, 7000);
-        assert_eq!(aggregate.min_score, 6000);
-        assert_eq!(aggregate.max_score, 8000);
         assert_eq!(aggregate.total_blocks_indexed, 1500);
         assert_eq!(aggregate.total_slashing_events, 1);
         assert_eq!(aggregate.operating_since, 1000);
+    }
+
+    #[test]
+    fn test_metrics_rates() {
+        let mut metrics = ReputationMetrics::default();
+        metrics.checkpoints_submitted = 100;
+        metrics.checkpoints_verified = 80;
+        assert!((metrics.checkpoint_success_rate() - 80.0).abs() < f64::EPSILON);
+
+        metrics.verifications_performed = 50;
+        metrics.verifications_correct = 45;
+        assert!((metrics.verification_accuracy() - 90.0).abs() < f64::EPSILON);
     }
 }
