@@ -138,6 +138,11 @@ pub enum RetentionWindow {
     Seconds(u64),
     /// Never prune (current behavior). Priced at ~10-year storage horizon.
     Indefinite,
+    /// Verify and discard: consensus verifies submissions but does not store raw data.
+    /// Only metadata (block hashes, data_hash, indexer DID) is stored for audit trail.
+    /// Queries always route to indexer nodes (code 2 redirect). Cheapest tier: base_tx_cost only.
+    /// Not allowed with ConsensusExecution (validators would compute data just to discard it).
+    VerifyOnly,
 }
 
 pub const MIN_RETENTION_BLOCKS: u64 = 100;
@@ -189,6 +194,7 @@ impl RetentionWindow {
                 }
             }
             RetentionWindow::Indefinite => {}
+            RetentionWindow::VerifyOnly => {}
         }
         Ok(())
     }
@@ -199,6 +205,7 @@ impl RetentionWindow {
     pub fn storage_cost_fraction(&self) -> (u128, u128) {
         match self {
             RetentionWindow::Indefinite => (1, 1),
+            RetentionWindow::VerifyOnly => (0, 1),
             RetentionWindow::Seconds(n) => (*n as u128, STORAGE_HORIZON_SECONDS as u128),
             RetentionWindow::Blocks(n) => (
                 *n as u128 * ASSUMED_BLOCK_TIME_SECONDS as u128,
