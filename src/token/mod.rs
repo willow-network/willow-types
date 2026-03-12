@@ -133,6 +133,8 @@ pub const KEY_ROTATE_PER_GRANT_BYTES: u64 = 220;
 pub const COMMITMENT_ESTIMATED_BYTES: u64 = 200;
 /// Estimated bytes for a re-execution verification.
 pub const REEXECUTION_ESTIMATED_BYTES: u64 = 1200;
+/// Estimated bytes for a file manifest stored on-chain.
+pub const FILE_MANIFEST_ESTIMATED_BYTES: u64 = 500;
 
 impl Default for FeeSchedule {
     fn default() -> Self {
@@ -523,6 +525,10 @@ pub enum FeeType {
     PrivateKeyRotate,
     /// Private subgrove commitment fee.
     PrivateCommitment,
+    /// File manifest storage fee.
+    FileManifestStorage,
+    /// Content moderation (block/unblock/report) fee.
+    ContentModeration,
 }
 
 // ============================================================================

@@ -116,6 +116,26 @@ pub enum Transaction {
     LinkEthAddress(LinkEthAddressTx),
     /// Record an ERC-8004 agent registration on Ethereum.
     RegisterErc8004Agent(RegisterErc8004AgentTx),
+
+    // File storage transactions
+    /// Store a file manifest (metadata + cryptographic commitments) on-chain.
+    StoreFileManifest(StoreFileManifestTx),
+    /// Delete a file manifest from on-chain storage.
+    DeleteFileManifest(DeleteFileManifestTx),
+    /// Register a storage node for serving file data.
+    RegisterStorageNode(RegisterStorageNodeTx),
+    /// Submit a storage availability proof (proves a storage node holds file chunks).
+    StorageAvailabilityProof(StorageAvailabilityProofTx),
+    /// Unregister a storage node and begin stake unbonding.
+    UnregisterStorageNode(UnregisterStorageNodeTx),
+
+    // Content moderation transactions
+    /// Add a content hash to the blocklist (admin only).
+    BlockContentHash(BlockContentHashTx),
+    /// Remove a content hash from the blocklist (admin only).
+    UnblockContentHash(UnblockContentHashTx),
+    /// Report content for governance review (any DID).
+    ReportContent(ReportContentTx),
 }
 
 /// Transaction to transfer WILL tokens between accounts.
@@ -552,6 +572,188 @@ pub struct PrivateSubgroveCommitmentTx {
     /// Unix timestamp of this commitment.
     pub timestamp: u64,
     /// Cryptographic signature from the provider.
+    pub signature: Vec<u8>,
+    /// ID of the public key used for signing.
+    pub public_key_id: String,
+    /// Replay protection nonce.
+    pub nonce: u64,
+}
+
+/// Transaction to store a file manifest on-chain.
+///
+/// The manifest contains metadata and cryptographic commitments (content hash,
+/// chunk Merkle root) for a file stored off-chain on storage nodes.
+/// Only writers on a FileStorage subgrove can submit this.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoreFileManifestTx {
+    /// Application containing the subgrove.
+    pub app_id: String,
+    /// Subgrove to store the file manifest in (must be FileStorage mode).
+    pub subgrove_id: String,
+    /// Unique key for this file within the subgrove.
+    pub file_key: String,
+    /// Original filename.
+    pub filename: String,
+    /// MIME type (e.g., "image/png").
+    pub content_type: String,
+    /// Total file size in bytes.
+    pub total_size: u64,
+    /// SHA-256 hash of the complete file.
+    pub content_hash: [u8; 32],
+    /// Number of chunks.
+    pub chunk_count: u32,
+    /// Size of each chunk in bytes.
+    pub chunk_size: u32,
+    /// Merkle root of the chunk hashes.
+    pub chunk_merkle_root: [u8; 32],
+    /// DID of the file owner.
+    pub owner_did: String,
+    /// Optional encryption metadata (for private file subgroves).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub encryption: Option<crate::storage::FileEncryption>,
+    /// Cryptographic signature from the owner.
+    pub signature: Vec<u8>,
+    /// ID of the public key used for signing.
+    pub public_key_id: String,
+    /// Replay protection nonce.
+    pub nonce: u64,
+}
+
+/// Transaction to delete a file manifest from on-chain storage.
+///
+/// Only the file owner can delete a manifest.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeleteFileManifestTx {
+    /// Application containing the subgrove.
+    pub app_id: String,
+    /// Subgrove containing the file.
+    pub subgrove_id: String,
+    /// Key of the file to delete.
+    pub file_key: String,
+    /// DID of the file owner (must match existing manifest).
+    pub owner_did: String,
+    /// Cryptographic signature from the owner.
+    pub signature: Vec<u8>,
+    /// ID of the public key used for signing.
+    pub public_key_id: String,
+    /// Replay protection nonce.
+    pub nonce: u64,
+}
+
+/// Transaction to register a storage node.
+///
+/// Storage nodes store file chunks and serve them to clients.
+/// They must stake WILL tokens as economic security.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegisterStorageNodeTx {
+    /// DID of the storage node operator.
+    pub node_did: String,
+    /// HTTP endpoint for uploads/downloads.
+    pub endpoint: String,
+    /// Advertised storage capacity in bytes.
+    pub capacity_bytes: u64,
+    /// Amount of WILL tokens to stake.
+    pub stake_amount: u128,
+    /// Cryptographic signature from the operator.
+    pub signature: Vec<u8>,
+    /// ID of the public key used for signing.
+    pub public_key_id: String,
+    /// Replay protection nonce.
+    pub nonce: u64,
+}
+
+/// Transaction to submit a storage availability proof.
+///
+/// Storage nodes periodically prove they still hold file chunks
+/// by responding to random challenges from validators.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StorageAvailabilityProofTx {
+    /// DID of the storage node.
+    pub node_did: String,
+    /// Application ID.
+    pub app_id: String,
+    /// Subgrove ID.
+    pub subgrove_id: String,
+    /// File key being proven.
+    pub file_key: String,
+    /// Index of the challenged chunk.
+    pub chunk_index: u32,
+    /// SHA-256 hash of the chunk.
+    pub chunk_hash: [u8; 32],
+    /// Merkle proof from chunk hash to chunk_merkle_root.
+    pub merkle_proof: Vec<[u8; 32]>,
+    /// Cryptographic signature from the storage node.
+    pub signature: Vec<u8>,
+    /// ID of the public key used for signing.
+    pub public_key_id: String,
+    /// Replay protection nonce.
+    pub nonce: u64,
+}
+
+/// Transaction to unregister a storage node.
+///
+/// Returns staked tokens via the unbonding process. Only the node
+/// operator can unregister their own node.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UnregisterStorageNodeTx {
+    /// DID of the storage node operator.
+    pub node_did: String,
+    /// Cryptographic signature from the operator.
+    pub signature: Vec<u8>,
+    /// ID of the public key used for signing.
+    pub public_key_id: String,
+    /// Replay protection nonce.
+    pub nonce: u64,
+}
+
+/// Transaction to add a content hash to the blocklist (admin only).
+///
+/// Files with blocklisted content hashes are rejected at manifest submission
+/// and purged from storage nodes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BlockContentHashTx {
+    /// SHA-256 content hash to block.
+    pub content_hash: [u8; 32],
+    /// Reason for blocking.
+    pub reason: String,
+    /// DID of the admin submitting the block.
+    pub admin_did: String,
+    /// Cryptographic signature from the admin.
+    pub signature: Vec<u8>,
+    /// ID of the public key used for signing.
+    pub public_key_id: String,
+    /// Replay protection nonce.
+    pub nonce: u64,
+}
+
+/// Transaction to remove a content hash from the blocklist (admin only).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UnblockContentHashTx {
+    /// SHA-256 content hash to unblock.
+    pub content_hash: [u8; 32],
+    /// DID of the admin submitting the unblock.
+    pub admin_did: String,
+    /// Cryptographic signature from the admin.
+    pub signature: Vec<u8>,
+    /// ID of the public key used for signing.
+    pub public_key_id: String,
+    /// Replay protection nonce.
+    pub nonce: u64,
+}
+
+/// Transaction to report content for governance review.
+///
+/// Any DID can submit a report. Reports are stored for governance review
+/// and may result in a BlockContentHashTx from an admin.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReportContentTx {
+    /// SHA-256 content hash being reported.
+    pub content_hash: [u8; 32],
+    /// Reason for the report.
+    pub reason: String,
+    /// DID of the reporter.
+    pub reporter_did: String,
+    /// Cryptographic signature from the reporter.
     pub signature: Vec<u8>,
     /// ID of the public key used for signing.
     pub public_key_id: String,

@@ -22,6 +22,27 @@ pub enum SubgroveMode {
         #[serde(default)]
         read_pricing: Option<crate::token::ReadPricing>,
     },
+    /// File storage mode — stores files (images, documents, binaries) with
+    /// cryptographic verification. Metadata goes through consensus, actual
+    /// file data lives on dedicated storage nodes.
+    FileStorage {
+        /// Human-readable name.
+        name: String,
+        /// Maximum file size in bytes (capped at MAX_FILE_SIZE).
+        max_file_size: u64,
+        /// Minimum number of storage nodes that must hold each file.
+        replication_factor: u8,
+        /// DIDs with write (upload) permission.
+        writers: Vec<String>,
+        /// DIDs with free read (download) permission.
+        free_readers: Vec<String>,
+        /// Pricing configuration for paid downloads.
+        #[serde(default)]
+        read_pricing: Option<crate::token::ReadPricing>,
+        /// Retention period in seconds (0 = permanent).
+        #[serde(default)]
+        retention_period: u64,
+    },
     /// Blockchain indexing mode — indexes on-chain data with optional WASM
     /// transformations for custom logic. Standard patterns (ERC-20 transfers,
     /// Uniswap swaps, etc.) work declaratively without WASM modules.
