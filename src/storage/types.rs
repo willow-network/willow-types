@@ -20,13 +20,21 @@ pub struct IndexDefinition {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SchemaDefinition {
     /// Schema version for migrations.
+    #[serde(default = "default_schema_version")]
     pub version: u32,
-    /// Field name to type mapping.
+    /// Field name to type mapping. Empty means schemaless (any JSON object accepted).
+    #[serde(default)]
     pub fields: BTreeMap<String, FieldType>,
-    /// Indexes for query optimization.
+    /// Indexes for query optimization. Empty means key-based lookup only.
+    #[serde(default)]
     pub indexes: Vec<IndexDefinition>,
-    /// Fields that must be present in documents.
+    /// Fields that must be present in documents. Empty means no required fields.
+    #[serde(default)]
     pub required_fields: Vec<String>,
+}
+
+fn default_schema_version() -> u32 {
+    1
 }
 
 /// Supported field types for schema definitions.
