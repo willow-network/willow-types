@@ -66,8 +66,6 @@ pub struct AppRegistration {
     pub name: String,
     /// Application description.
     pub description: String,
-    /// Application category (e.g., "social-media", "defi").
-    pub app_type: String,
     /// DID of the application owner.
     pub owner_did: String,
     /// DIDs with admin privileges.

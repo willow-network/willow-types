@@ -198,8 +198,6 @@ pub struct RegisterAppTx {
     pub name: String,
     /// Description of the application.
     pub description: String,
-    /// Type/category of the application.
-    pub app_type: String,
     /// DID of the application owner.
     pub owner_did: String,
     /// List of admin DIDs with elevated permissions.
