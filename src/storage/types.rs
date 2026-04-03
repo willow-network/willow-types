@@ -102,8 +102,7 @@ pub struct SubgroveRegistration {
     /// Retention window for real-time indexed data on consensus nodes.
     /// Only meaningful for BlockchainIndexing subgroves.
     #[serde(default)]
-    pub retention_window:
-        crate::consensus::indexing_transactions::RetentionWindow,
+    pub retention_window: crate::consensus::indexing_transactions::RetentionWindow,
     /// Unix timestamp of creation.
     pub created_at: u64,
     /// Unix timestamp of last update.

@@ -78,7 +78,10 @@ mod tests {
     #[test]
     fn test_operational_violations_are_small() {
         // Operational violations should be 500 WILL each
-        assert_eq!(SlashingViolation::Unavailability.slash_amount(), 500 * ONE_WILL);
+        assert_eq!(
+            SlashingViolation::Unavailability.slash_amount(),
+            500 * ONE_WILL
+        );
         assert_eq!(
             SlashingViolation::CommitmentLivenessViolation.slash_amount(),
             500 * ONE_WILL
