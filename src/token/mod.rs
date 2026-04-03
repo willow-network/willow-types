@@ -103,8 +103,6 @@ pub struct StakeInfo {
 pub struct FeeSchedule {
     /// Fee to register a DID (identity).
     pub did_registration: u128,
-    /// Fee to register an application.
-    pub app_registration: u128,
     /// Fee to register a subgrove.
     pub subgrove_registration: u128,
     /// Base cost per transaction (covers consensus overhead).
@@ -140,7 +138,6 @@ impl Default for FeeSchedule {
     fn default() -> Self {
         Self {
             did_registration: 10u128.pow(TOKEN_DECIMALS as u32), // 1 WILL
-            app_registration: 1000 * 10u128.pow(TOKEN_DECIMALS as u32), // 1000 WILL
             subgrove_registration: 100 * 10u128.pow(TOKEN_DECIMALS as u32), // 100 WILL
             base_tx_cost: 24_000_000_000_000_000,                // 0.024 WILL
             cost_per_byte: 86_400_000_000_000,                   // 0.0000864 WILL
@@ -152,11 +149,11 @@ impl Default for FeeSchedule {
     }
 }
 
-/// Application funding account for paying storage/query fees.
+/// Subgrove funding account for paying storage/query fees.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AppFunding {
-    /// Application ID.
-    pub app_id: String,
+pub struct SubgroveFunding {
+    /// Subgrove ID.
+    pub subgrove_id: String,
     /// Current balance available.
     pub balance: u128,
     /// Total amount spent.
@@ -402,8 +399,6 @@ pub struct X402PaymentResponse {
 pub struct ReadPaymentRecord {
     /// Unique payment ID.
     pub payment_id: String,
-    /// Application ID containing the subgrove.
-    pub app_id: String,
     /// Subgrove that was accessed.
     pub subgrove_id: String,
     /// DID that paid for the read.
@@ -504,8 +499,6 @@ pub const FREE_QUERIES_PER_DAY: u32 = 500;
 pub enum FeeType {
     /// DID registration fee.
     DidRegistration,
-    /// Application registration fee.
-    AppRegistration,
     /// Subgrove registration fee.
     SubgroveRegistration,
     /// Data storage fee based on size.

@@ -123,8 +123,6 @@ pub struct ContentReport {
 pub struct NodeFileAssignment {
     /// DID of the storage node.
     pub node_did: String,
-    /// Application ID.
-    pub app_id: String,
     /// Subgrove ID.
     pub subgrove_id: String,
     /// File key.
@@ -140,8 +138,6 @@ pub struct StorageAvailabilityProof {
     pub node_did: String,
     /// File key being proven.
     pub file_key: String,
-    /// App ID containing the file.
-    pub app_id: String,
     /// Subgrove ID containing the file.
     pub subgrove_id: String,
     /// Index of the challenged chunk.
@@ -176,8 +172,6 @@ pub struct StorageChallenge {
     pub challenge_id: [u8; 32],
     /// DID of the challenged storage node.
     pub node_did: String,
-    /// Application ID of the file.
-    pub app_id: String,
     /// Subgrove ID of the file.
     pub subgrove_id: String,
     /// File key being challenged.

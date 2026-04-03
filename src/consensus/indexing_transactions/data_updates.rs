@@ -11,9 +11,6 @@ use super::gkr_proof_types::GkrPublicInputs;
 pub struct SubgroveUpdateTx {
     /// DID of the indexer submitting this update.
     pub indexer_did: String,
-    /// The application this subgrove belongs to.
-    #[serde(default)]
-    pub app_id: String,
     /// The subgrove this update applies to.
     pub subgrove_id: String,
     /// Range of Ethereum blocks covered (inclusive).

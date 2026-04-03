@@ -174,10 +174,10 @@ pub struct IndexerDisputeStats {
 /// a valid GroveDB proof for the challenged path+key within the response deadline.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommitmentDispute {
-    /// Unique dispute ID: SHA256(subgrove_key || challenger_did || block_height).
+    /// Unique dispute ID: SHA256(subgrove_id || challenger_did || block_height).
     pub dispute_id: [u8; 32],
-    /// The subgrove being disputed ("app_id:subgrove_id").
-    pub subgrove_key: String,
+    /// The subgrove being disputed.
+    pub subgrove_id: String,
     /// DID of the provider whose commitment is disputed.
     pub provider_did: String,
     /// DID of the challenger (must be a current key grantee).
@@ -199,14 +199,14 @@ pub struct CommitmentDispute {
 }
 
 impl CommitmentDispute {
-    /// Computes a unique dispute ID from subgrove key, challenger DID, and block height.
+    /// Computes a unique dispute ID from subgrove ID, challenger DID, and block height.
     pub fn compute_dispute_id(
-        subgrove_key: &str,
+        subgrove_id: &str,
         challenger_did: &str,
         block_height: u64,
     ) -> [u8; 32] {
         let mut hasher = Sha256::new();
-        hasher.update(subgrove_key.as_bytes());
+        hasher.update(subgrove_id.as_bytes());
         hasher.update(challenger_did.as_bytes());
         hasher.update(block_height.to_le_bytes());
         hasher.finalize().into()

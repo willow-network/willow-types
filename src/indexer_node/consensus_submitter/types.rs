@@ -152,7 +152,6 @@ impl SubgroveConfigForHashing {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubgroveRegistrationResponse {
     pub subgrove_id: String,
-    pub app_id: String,
     pub name: String,
     pub owner_did: String,
     pub writers: Vec<String>,
@@ -163,10 +162,10 @@ pub struct SubgroveRegistrationResponse {
     pub updated_at: u64,
 }
 
-/// Response from querying an application's funding balance.
+/// Response from querying a subgrove's funding balance.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AppFundingResponse {
-    pub app_id: String,
+pub struct SubgroveFundingResponse {
+    pub subgrove_id: String,
     pub balance: u128,
     pub total_spent: u128,
     pub last_funded: u64,
@@ -183,7 +182,7 @@ pub enum TransactionType {
     HistoricalCheckpoint,
     /// Single block update at chain tip (with optional GKR proof)
     IndexedBlockSubmission,
-    AppRegistration,
+    SubgroveRegistration,
     IndexerRegistration,
     Other(String),
 }
@@ -220,8 +219,6 @@ pub struct IndexedBlockSubmissionTx {
     pub transaction_type: TransactionType,
     /// The indexer's DID
     pub indexer_did: DID,
-    /// App that owns this subgrove
-    pub app_id: String,
     /// Subgrove this update is for
     pub subgrove_id: String,
     /// Block number that was indexed

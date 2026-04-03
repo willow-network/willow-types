@@ -178,8 +178,8 @@ impl CommitmentLivenessStatus {
 /// Tracks the commitment schedule for a single private subgrove.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommitmentSchedule {
-    /// Composite key: "app_id:subgrove_id"
-    pub subgrove_key: String,
+    /// The subgrove this schedule belongs to.
+    pub subgrove_id: String,
     /// DID of the provider responsible for commitments.
     pub provider_did: String,
     /// Whether this is block-based or time-based windowing.
@@ -443,7 +443,7 @@ mod tests {
     #[test]
     fn test_schedule_windows_elapsed() {
         let schedule = CommitmentSchedule {
-            subgrove_key: "app:sub".to_string(),
+            subgrove_id: "app:sub".to_string(),
             provider_did: "did:test".to_string(),
             window_type: CommitmentWindowType::Blocks,
             window_size: 100,

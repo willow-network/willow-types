@@ -55,39 +55,22 @@ pub enum FieldType {
     Bytes,
 }
 
-/// Application registration metadata.
-///
-/// Stores information about a registered application in the Willow network.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AppRegistration {
-    /// Unique application identifier.
-    pub app_id: String,
-    /// Human-readable application name.
-    pub name: String,
-    /// Application description.
-    pub description: String,
-    /// DID of the application owner.
-    pub owner_did: String,
-    /// DIDs with admin privileges.
-    pub admins: Vec<String>,
-    /// Unix timestamp of creation.
-    pub created_at: u64,
-    /// Unix timestamp of last update.
-    pub updated_at: u64,
-}
-
 /// Subgrove registration metadata.
 ///
-/// A subgrove is a data collection within an application with its own
-/// schema, access controls, and indexes.
+/// A subgrove is a data collection with its own schema, access controls,
+/// indexes, and funding balance.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubgroveRegistration {
-    /// Unique identifier within the app.
+    /// Unique subgrove identifier.
     pub subgrove_id: String,
-    /// Parent application identifier.
-    pub app_id: String,
     /// Human-readable subgrove name.
     pub name: String,
+    /// Subgrove description.
+    #[serde(default)]
+    pub description: String,
+    /// DIDs with admin privileges.
+    #[serde(default)]
+    pub admins: Vec<String>,
     /// Document schema definition.
     pub schema: SchemaDefinition,
     /// DID of the subgrove owner.
@@ -290,15 +273,13 @@ pub enum EncryptionAlgorithm {
 
 /// Permission grant for access control.
 ///
-/// Records a permission granted to a DID for an app or subgrove.
+/// Records a permission granted to a DID for a subgrove.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Permission {
     /// DID receiving the permission.
     pub did: String,
-    /// Application the permission applies to.
-    pub app_id: String,
-    /// Optional subgrove scope (None = app-wide).
-    pub subgrove_id: Option<String>,
+    /// Subgrove the permission applies to.
+    pub subgrove_id: String,
     /// Role level granted.
     pub role: PermissionRole,
     /// DID that granted this permission.

@@ -19,13 +19,11 @@ pub enum Transaction {
     /// Begin unstaking tokens (subject to unbonding period).
     Unstake(UnstakeTx),
 
-    // App transactions (with fees)
-    /// Register a new application.
-    RegisterApp(RegisterAppTx),
-    /// Register a subgrove for an application.
+    // Subgrove transactions (with fees)
+    /// Register a new subgrove.
     RegisterSubgrove(RegisterSubgroveTx),
-    /// Fund an application's balance.
-    FundApp(FundAppTx),
+    /// Fund a subgrove's balance.
+    FundSubgrove(FundSubgroveTx),
     /// Update read pricing for a subgrove.
     UpdateSubgroveReadPricing(UpdateSubgroveReadPricingTx),
     /// Update the free readers list for a subgrove.
@@ -189,36 +187,12 @@ pub struct UnstakeTx {
     pub nonce: u64,
 }
 
-/// Transaction to register a new application.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RegisterAppTx {
-    /// Unique identifier for the application.
-    pub app_id: String,
-    /// Human-readable name.
-    pub name: String,
-    /// Description of the application.
-    pub description: String,
-    /// DID of the application owner.
-    pub owner_did: String,
-    /// List of admin DIDs with elevated permissions.
-    pub admins: Vec<String>,
-    /// Optional initial funding amount (in smallest token unit) to atomically
-    /// fund the app during registration, avoiding a separate FundApp transaction.
-    #[serde(default)]
-    pub initial_funding: Option<u128>,
-    /// Cryptographic signature from the owner.
-    pub signature: Vec<u8>,
-    /// ID of the public key used for signing.
-    pub public_key_id: String,
-    /// Replay protection nonce.
-    pub nonce: u64,
-}
-
-/// Transaction to register a subgrove for an application.
+/// Transaction to register a new subgrove.
 ///
-/// Supports two modes via the `mode` field:
+/// Supports three modes via the `mode` field:
 /// - `DataStorage`: For off-chain structured data with verification
 /// - `BlockchainIndexing`: For on-chain data indexing with WASM transformations
+/// - `FileStorage`: For binary file storage on dedicated storage nodes
 ///
 /// When `mode` is omitted during deserialization, defaults to `DataStorage`
 /// with empty values for backward compatibility.
@@ -226,17 +200,27 @@ pub struct RegisterAppTx {
 pub struct RegisterSubgroveTx {
     /// Unique identifier for the subgrove.
     pub subgrove_id: String,
-    /// Parent application ID.
-    pub app_id: String,
+    /// Human-readable name.
+    pub name: String,
+    /// Description of the subgrove.
+    #[serde(default)]
+    pub description: String,
     /// JSON schema defining the data structure.
     pub schema: String,
     /// DID of the subgrove owner.
     pub owner_did: String,
+    /// List of admin DIDs with elevated permissions.
+    #[serde(default)]
+    pub admins: Vec<String>,
+    /// Optional initial funding amount (in smallest token unit) to atomically
+    /// fund the subgrove during registration.
+    #[serde(default)]
+    pub initial_funding: Option<u128>,
     /// Checkpoint verification configuration.
     /// Optionally requires TEE attestation for checkpoint submissions.
     #[serde(default)]
     pub checkpoint_verification: super::indexing_transactions::CheckpointVerificationConfig,
-    /// The subgrove mode: DataStorage or BlockchainIndexing.
+    /// The subgrove mode: DataStorage, BlockchainIndexing, or FileStorage.
     #[serde(default = "super::indexing_transactions::default_data_storage_mode")]
     pub mode: super::indexing_transactions::SubgroveMode,
     /// Optional privacy configuration for private subgroves.
@@ -253,11 +237,11 @@ pub struct RegisterSubgroveTx {
     pub nonce: u64,
 }
 
-/// Transaction to fund an application's balance for storage fees.
+/// Transaction to fund a subgrove's balance for storage fees.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FundAppTx {
-    /// Application to fund.
-    pub app_id: String,
+pub struct FundSubgroveTx {
+    /// Subgrove to fund.
+    pub subgrove_id: String,
     /// Amount of WILL tokens to add.
     pub amount: u128,
     /// DID of the funder.
@@ -275,8 +259,6 @@ pub struct FundAppTx {
 /// Only the subgrove owner can submit this transaction.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateSubgroveReadPricingTx {
-    /// Parent application ID.
-    pub app_id: String,
     /// Subgrove to update.
     pub subgrove_id: String,
     /// DID of the subgrove owner making the change.
@@ -296,8 +278,6 @@ pub struct UpdateSubgroveReadPricingTx {
 /// Only the subgrove owner can submit this transaction.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateSubgroveFreeReadersTx {
-    /// Parent application ID.
-    pub app_id: String,
     /// Subgrove to update.
     pub subgrove_id: String,
     /// DID of the subgrove owner making the change.
@@ -397,8 +377,6 @@ pub struct ServiceEndpoint {
 /// Transaction to store new data in a subgrove.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoreDataTx {
-    /// Application containing the subgrove.
-    pub app_id: String,
     /// Subgrove to store data in.
     pub subgrove_id: String,
     /// Key for the data entry.
@@ -418,8 +396,6 @@ pub struct StoreDataTx {
 /// Transaction to update existing data in a subgrove.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateDataTx {
-    /// Application containing the subgrove.
-    pub app_id: String,
     /// Subgrove containing the data.
     pub subgrove_id: String,
     /// Key of the data entry to update.
@@ -439,8 +415,6 @@ pub struct UpdateDataTx {
 /// Transaction to delete data from a subgrove.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeleteDataTx {
-    /// Application containing the subgrove.
-    pub app_id: String,
     /// Subgrove containing the data.
     pub subgrove_id: String,
     /// Key of the data entry to delete.
@@ -481,8 +455,6 @@ pub struct LinkEthAddressTx {
 /// wrapped for the grantee's public key.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GrantSubgroveKeyTx {
-    /// Parent application ID.
-    pub app_id: String,
     /// Subgrove to grant access to.
     pub subgrove_id: String,
     /// The encrypted key grant for the grantee.
@@ -502,8 +474,6 @@ pub struct GrantSubgroveKeyTx {
 /// Only the subgrove owner or an admin can submit this transaction.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RevokeSubgroveKeyTx {
-    /// Parent application ID.
-    pub app_id: String,
     /// Subgrove to revoke access from.
     pub subgrove_id: String,
     /// DID to revoke access from.
@@ -524,8 +494,6 @@ pub struct RevokeSubgroveKeyTx {
 /// Only the subgrove owner can submit this transaction.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RotateSubgroveKeyTx {
-    /// Parent application ID.
-    pub app_id: String,
     /// Subgrove to rotate key for.
     pub subgrove_id: String,
     /// New key epoch (must be current_epoch + 1).
@@ -548,8 +516,6 @@ pub struct RotateSubgroveKeyTx {
 /// to consensus at the configured commitment frequency.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrivateSubgroveCommitmentTx {
-    /// Parent application ID.
-    pub app_id: String,
     /// Subgrove this commitment is for.
     pub subgrove_id: String,
     /// DID of the provider submitting the commitment.
@@ -584,8 +550,6 @@ pub struct PrivateSubgroveCommitmentTx {
 /// Only writers on a FileStorage subgrove can submit this.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoreFileManifestTx {
-    /// Application containing the subgrove.
-    pub app_id: String,
     /// Subgrove to store the file manifest in (must be FileStorage mode).
     pub subgrove_id: String,
     /// Unique key for this file within the subgrove.
@@ -622,8 +586,6 @@ pub struct StoreFileManifestTx {
 /// Only the file owner can delete a manifest.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeleteFileManifestTx {
-    /// Application containing the subgrove.
-    pub app_id: String,
     /// Subgrove containing the file.
     pub subgrove_id: String,
     /// Key of the file to delete.
@@ -668,8 +630,6 @@ pub struct RegisterStorageNodeTx {
 pub struct StorageAvailabilityProofTx {
     /// DID of the storage node.
     pub node_did: String,
-    /// Application ID.
-    pub app_id: String,
     /// Subgrove ID.
     pub subgrove_id: String,
     /// File key being proven.

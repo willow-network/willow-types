@@ -151,8 +151,6 @@ pub fn validate_set_dispute_availability(tx: &SetDisputeAvailabilityTx) -> Resul
 /// state_root is backed by a real data tree.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpenCommitmentDisputeTx {
-    /// Parent application ID.
-    pub app_id: String,
     /// Subgrove being disputed.
     pub subgrove_id: String,
     /// DID of the challenger (must be a current key grantee).
@@ -196,9 +194,6 @@ pub struct RespondCommitmentDisputeTx {
 pub fn validate_open_commitment_dispute(tx: &OpenCommitmentDisputeTx) -> Result<(), String> {
     use super::types::COMMITMENT_DISPUTE_BOND;
 
-    if tx.app_id.is_empty() {
-        return Err("App ID cannot be empty".to_string());
-    }
     if tx.subgrove_id.is_empty() {
         return Err("Subgrove ID cannot be empty".to_string());
     }
