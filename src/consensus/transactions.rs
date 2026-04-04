@@ -22,6 +22,8 @@ pub enum Transaction {
     // Subgrove transactions (with fees)
     /// Register a new subgrove.
     RegisterSubgrove(RegisterSubgroveTx),
+    /// Deregister (delete) a subgrove and refund remaining balance.
+    DeregisterSubgrove(DeregisterSubgroveTx),
     /// Fund a subgrove's balance.
     FundSubgrove(FundSubgroveTx),
     /// Update read pricing for a subgrove.
@@ -247,6 +249,24 @@ pub struct FundSubgroveTx {
     /// DID of the funder.
     pub from_did: String,
     /// Cryptographic signature from the funder.
+    pub signature: Vec<u8>,
+    /// ID of the public key used for signing.
+    pub public_key_id: String,
+    /// Replay protection nonce.
+    pub nonce: u64,
+}
+
+/// Transaction to deregister (delete) a subgrove.
+///
+/// Only the subgrove owner can submit this transaction.
+/// Remaining subgrove funding balance is refunded to the owner.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeregisterSubgroveTx {
+    /// Subgrove to deregister.
+    pub subgrove_id: String,
+    /// DID of the subgrove owner.
+    pub owner_did: String,
+    /// Cryptographic signature from the owner.
     pub signature: Vec<u8>,
     /// ID of the public key used for signing.
     pub public_key_id: String,
