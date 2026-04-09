@@ -11,7 +11,9 @@ pub const DISPUTE_BOND: u128 = 100 * ONE_WILL;
 pub const BISECTION_RESPONSE_DEADLINE_BLOCKS: u64 = 200;
 
 /// Number of blocks to wait before auto-adjudicating a ready dispute.
-pub const ADJUDICATION_TIMEOUT_BLOCKS: u64 = 100;
+/// Must be long enough for the challenger to submit an AdjudicateBisectionTx
+/// with evidence after bisection completes (~12 rounds × 10 blocks per round).
+pub const ADJUDICATION_TIMEOUT_BLOCKS: u64 = 500;
 
 // ============================================================================
 // Commitment Dispute Constants (for private subgrove challenge-response)
@@ -101,6 +103,11 @@ pub enum BisectionStatus {
         challenger_response: Option<BisectionResponse>,
         /// Deadline block for this round's responses.
         round_deadline: u64,
+        /// The most recently observed agreed accumulated hash from prior rounds.
+        /// When both parties agree at a midpoint, this is set to that agreed hash.
+        /// Used as `agreed_hash_before` when the dispute reaches adjudication.
+        #[serde(default)]
+        last_agreed_hash: Option<[u8; 32]>,
     },
     /// Bisection complete — narrowed to a single block ready for adjudication.
     ReadyForAdjudication {

@@ -56,6 +56,27 @@ pub struct AdjudicateBisectionTx {
     pub public_key_id: String,
     /// Replay protection nonce.
     pub nonce: u64,
+    /// Evidence: raw Ethereum events for the disputed block.
+    /// Each entry is (contract_address_hex, topics_hex, data_hex).
+    /// Consensus re-executes the transformation using these events
+    /// to determine which party's hash is correct.
+    #[serde(default)]
+    pub evidence_events: Vec<EvidenceEvent>,
+}
+
+/// A raw Ethereum event submitted as evidence for dispute adjudication.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EvidenceEvent {
+    /// Contract address that emitted the event (hex with 0x prefix).
+    pub address: String,
+    /// Event topics (first is event signature hash).
+    pub topics: Vec<String>,
+    /// ABI-encoded event data (hex with 0x prefix).
+    pub data: String,
+    /// Transaction hash.
+    pub tx_hash: String,
+    /// Log index within the block.
+    pub log_index: u64,
 }
 
 /// Transaction to set an indexer's availability for dispute resolution.
