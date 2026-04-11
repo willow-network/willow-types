@@ -219,9 +219,10 @@ pub struct PrivacyConfig {
 
 /// How often the provider must publish state root commitments on-chain.
 /// Default: EveryUpdate (strongest freshness guarantee).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub enum CommitmentFrequency {
     /// Commit after every write/block update (default, strongest freshness).
+    #[default]
     EveryUpdate,
     /// Commit every N blocks processed.
     EveryNBlocks(u64),
@@ -235,12 +236,6 @@ pub enum CommitmentFrequency {
     /// out-of-band trust relationship with the provider (e.g., the owner IS the
     /// provider, or they share the same organizational control).
     Never,
-}
-
-impl Default for CommitmentFrequency {
-    fn default() -> Self {
-        CommitmentFrequency::EveryUpdate
-    }
 }
 
 /// Encrypted copy of a subgrove's symmetric key, wrapped for a specific reader DID.

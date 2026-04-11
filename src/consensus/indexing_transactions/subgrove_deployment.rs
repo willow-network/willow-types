@@ -103,7 +103,7 @@ pub struct WasmModule {
 /// |----------------|-------------------------------------|------------------|
 /// | No TEE         | Economic (dispute + slashing)       | 1000 blocks      |
 /// | With TEE       | Hardware (Intel/AWS attestation)    | 500 blocks       |
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CheckpointVerificationConfig {
     /// Optional TEE requirement for checkpoint submissions.
     /// When set, checkpoints must include a valid hardware attestation
@@ -111,12 +111,6 @@ pub struct CheckpointVerificationConfig {
     /// from 1000 blocks to 500 blocks.
     #[serde(default)]
     pub required_tee: Option<crate::tee::TeeType>,
-}
-
-impl Default for CheckpointVerificationConfig {
-    fn default() -> Self {
-        CheckpointVerificationConfig { required_tee: None }
-    }
 }
 
 impl CheckpointVerificationConfig {
@@ -151,13 +145,14 @@ impl CheckpointVerificationConfig {
 /// How long real-time indexed data is retained on consensus nodes.
 /// After the retention window expires (and a trusted checkpoint covers the blocks),
 /// data is pruned from consensus and queries route to indexer nodes.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub enum RetentionWindow {
     /// Retain for N consensus blocks. Min: 100, Max: 15,768,000 (~1 year at 2s blocks).
     Blocks(u64),
     /// Retain for N seconds. Min: 300 (5 minutes), Max: 31,536,000 (1 year).
     Seconds(u64),
     /// Never prune (current behavior). Priced at ~10-year storage horizon.
+    #[default]
     Indefinite,
     /// Verify and discard: consensus verifies submissions but does not store raw data.
     /// Only metadata (block hashes, data_hash, indexer DID) is stored for audit trail.
@@ -175,12 +170,6 @@ pub const MAX_RETENTION_SECONDS: u64 = 31_536_000;
 pub const STORAGE_HORIZON_SECONDS: u64 = 315_576_000;
 /// Assumed block time in seconds for cost calculations.
 pub const ASSUMED_BLOCK_TIME_SECONDS: u64 = 2;
-
-impl Default for RetentionWindow {
-    fn default() -> Self {
-        RetentionWindow::Indefinite
-    }
-}
 
 impl RetentionWindow {
     /// Validate that the retention window parameters are within bounds.
