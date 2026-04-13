@@ -77,9 +77,14 @@ impl BisectionDispute {
         self.original_indexer_did == did || self.challenger_did == did
     }
 
-    /// Returns true if the dispute is resolved.
+    /// Returns true if the dispute has reached a terminal state: either
+    /// `Resolved` (one party won) or `TimedOut` (adjudication window
+    /// expired, bonds refunded).
     pub fn is_resolved(&self) -> bool {
-        matches!(self.status, BisectionStatus::Resolved { .. })
+        matches!(
+            self.status,
+            BisectionStatus::Resolved { .. } | BisectionStatus::TimedOut { .. }
+        )
     }
 
     /// Returns the total number of blocks in the disputed range.
@@ -130,6 +135,17 @@ pub enum BisectionStatus {
         resolved_at_block: u64,
         /// Amount slashed from the loser.
         slash_amount: u128,
+    },
+    /// Adjudication window expired without a valid submission. The challenger
+    /// bond is refunded, neither party is slashed, and the underlying
+    /// checkpoint's verification state is left untouched. The dispute is
+    /// terminal: no further state transitions. A fresh dispute may be opened
+    /// against the same checkpoint.
+    TimedOut {
+        /// Block height at which the dispute reached `ReadyForAdjudication`.
+        reached_at_block: u64,
+        /// Block height at which the timeout was applied and the bond refunded.
+        refunded_at_block: u64,
     },
 }
 
