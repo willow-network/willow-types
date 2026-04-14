@@ -434,11 +434,9 @@ impl StoredCheckpoint {
             .iter()
             .filter(|p| p.is_routable())
             .max_by_key(|p| {
-                if p.successful_queries + p.failed_queries > 0 {
-                    (p.successful_queries * 100) / (p.successful_queries + p.failed_queries)
-                } else {
-                    50 // Neutral for new providers
-                }
+                (p.successful_queries * 100)
+                    .checked_div(p.successful_queries + p.failed_queries)
+                    .unwrap_or(50) // Neutral for new providers
             })
     }
 
