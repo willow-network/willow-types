@@ -17,6 +17,13 @@ pub struct RegisterIndexerTx {
     pub stake_amount: u128,
     /// HTTP endpoint for monitoring and health checks.
     pub endpoint: String,
+    /// Optional HTTP endpoint for client query traffic (GraphQL/SQL/historical).
+    ///
+    /// Indexers typically expose their query service on a separate port
+    /// (`historical_query_port`, default 3032) from the monitoring endpoint.
+    /// When `None`, clients fall back to `endpoint` or a port-swap heuristic.
+    #[serde(default)]
+    pub query_endpoint: Option<String>,
     /// Ethereum RPC endpoint the indexer will use for fetching data.
     pub ethereum_rpc: String,
     /// Cryptographic signature over the transaction.
@@ -230,5 +237,110 @@ impl FeeDistributionRates {
     /// Validate that percentages sum to 100.
     pub fn validate(&self) -> bool {
         self.indexer_percent + self.validator_percent + self.treasury_percent == 100
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_tx(query_endpoint: Option<String>) -> RegisterIndexerTx {
+        RegisterIndexerTx {
+            indexer_did: "did:willow:indexer1".to_string(),
+            subgroves: vec!["sg-1".to_string()],
+            stake_amount: 100_000_000_000_000_000_000_000,
+            endpoint: "http://monitor.example.com:9090".to_string(),
+            query_endpoint,
+            ethereum_rpc: "http://eth.example.com".to_string(),
+            signature: vec![1, 2, 3],
+            public_key_id: "did:willow:indexer1#key-1".to_string(),
+            nonce: 7,
+        }
+    }
+
+    /// Transactions produced before the `query_endpoint` field existed must still
+    /// deserialize — the field is marked `#[serde(default)]`. Without the
+    /// default, upgrading a devnet would reject every pre-existing queued tx.
+    #[test]
+    fn deserializes_legacy_tx_without_query_endpoint() {
+        // Hand-crafted JSON representing a pre-upgrade signed tx. Using a
+        // string literal (not the json! macro) because stake_amount is a u128
+        // and the macro would silently clamp to i64.
+        let legacy_json = r#"{
+            "indexer_did": "did:willow:legacy",
+            "subgroves": ["sg-old"],
+            "stake_amount": 100000000000000000000000,
+            "endpoint": "http://old.example.com",
+            "ethereum_rpc": "http://eth.example.com",
+            "signature": [1, 2, 3],
+            "public_key_id": "did:willow:legacy#key-1",
+            "nonce": 1
+        }"#;
+
+        let tx: RegisterIndexerTx = serde_json::from_str(legacy_json).expect(
+            "RegisterIndexerTx must deserialize without the query_endpoint field \
+             (serde default keeps old signed transactions valid)",
+        );
+        assert_eq!(tx.query_endpoint, None);
+        assert_eq!(tx.endpoint, "http://old.example.com");
+    }
+
+    /// When `query_endpoint` is `Some`, the JSON round-trip must preserve it
+    /// exactly — otherwise consensus and SDK would disagree on what URL a
+    /// caller should hit for indexed data.
+    #[test]
+    fn roundtrips_query_endpoint_when_set() {
+        let tx = sample_tx(Some("http://query.example.com:3032".to_string()));
+        let json = serde_json::to_string(&tx).unwrap();
+        assert!(
+            json.contains(r#""query_endpoint":"http://query.example.com:3032""#),
+            "expected query_endpoint in serialized JSON, got: {}",
+            json
+        );
+        let back: RegisterIndexerTx = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            back.query_endpoint.as_deref(),
+            Some("http://query.example.com:3032")
+        );
+    }
+
+    /// The signing payload is constructed identically on the signer side
+    /// (indexer-node) and the verifier side (check_tx + indexing_transactions
+    /// in the consensus crate). If either drifts, signatures fail. This test
+    /// pins the current format so a future edit will fail loudly.
+    #[test]
+    fn signing_payload_format_includes_query_endpoint() {
+        let tx = sample_tx(Some("http://query.example.com:3032".to_string()));
+        let payload = format!(
+            "RegisterIndexer:{}:{}:{}:{}:{}",
+            tx.indexer_did,
+            tx.stake_amount,
+            tx.endpoint,
+            tx.query_endpoint.as_deref().unwrap_or(""),
+            tx.nonce
+        );
+        assert_eq!(
+            payload,
+            "RegisterIndexer:did:willow:indexer1:100000000000000000000000:\
+             http://monitor.example.com:9090:http://query.example.com:3032:7"
+        );
+
+        // With no query_endpoint, the slot is empty (two adjacent colons)
+        // rather than missing — otherwise signer vs verifier wouldn't
+        // agree when `query_endpoint` is `None`.
+        let tx_none = sample_tx(None);
+        let payload_none = format!(
+            "RegisterIndexer:{}:{}:{}:{}:{}",
+            tx_none.indexer_did,
+            tx_none.stake_amount,
+            tx_none.endpoint,
+            tx_none.query_endpoint.as_deref().unwrap_or(""),
+            tx_none.nonce
+        );
+        assert!(
+            payload_none.contains(":http://monitor.example.com:9090::"),
+            "expected empty query_endpoint slot, got: {}",
+            payload_none
+        );
     }
 }
