@@ -14,6 +14,7 @@ pub struct RegisterIndexerTx {
     /// List of subgrove IDs this indexer will process.
     pub subgroves: Vec<String>,
     /// Amount of WILL tokens to stake (minimum 100,000 WILL).
+    #[serde(with = "crate::serde_helpers::u128_flexible")]
     pub stake_amount: u128,
     /// HTTP endpoint for monitoring and health checks.
     pub endpoint: String,
@@ -65,6 +66,10 @@ pub struct IndexerConfig {
     /// Reward per epoch per indexer in WILL (smallest unit).
     /// An indexer with full participation earns this amount each epoch.
     /// Higher rewards attract more indexers to bid on this subgrove.
+    ///
+    /// Accepts both a JSON number (Rust SDK) and a JSON string (TS SDK)
+    /// on the wire — see `crate::serde_helpers::u128_flexible`.
+    #[serde(with = "crate::serde_helpers::u128_flexible")]
     pub reward_per_epoch: u128,
 
     /// Length of an epoch in blocks. Default: 100.
@@ -73,6 +78,10 @@ pub struct IndexerConfig {
 
     /// Minimum stake required from each indexer in WILL (smallest unit).
     /// Higher stake requirements increase indexer accountability.
+    ///
+    /// Accepts both a JSON number (Rust SDK) and a JSON string (TS SDK)
+    /// on the wire — see `crate::serde_helpers::u128_flexible`.
+    #[serde(with = "crate::serde_helpers::u128_flexible")]
     pub min_indexer_stake: u128,
 }
 
@@ -342,5 +351,54 @@ mod tests {
             "expected empty query_endpoint slot, got: {}",
             payload_none
         );
+    }
+
+    /// The TypeScript SDK (and therefore the web explorer) cannot losslessly
+    /// represent u128 values above 2^53 as JSON numbers, so it sends
+    /// `reward_per_epoch` and `min_indexer_stake` as JSON strings on the
+    /// wire. Deserialization must accept both JSON numbers (Rust SDK) and
+    /// JSON strings (TS SDK); otherwise every BlockchainIndexing subgrove
+    /// registration from the web explorer fails at CheckTx with
+    /// "invalid number at line 1 column …".
+    ///
+    /// Regression: confirmed on 2026-04-16 that the explorer was sending
+    /// `"reward_per_epoch":"100000000000000000"` and CheckTx rejected it.
+    #[test]
+    fn indexer_config_accepts_string_u128_fields() {
+        let json_from_ts_sdk = r#"{
+            "min_indexers": 1,
+            "max_indexers": 3,
+            "reward_per_epoch": "100000000000000000",
+            "epoch_length": 100,
+            "min_indexer_stake": "100000000000000000000000"
+        }"#;
+
+        let cfg: IndexerConfig = serde_json::from_str(json_from_ts_sdk).expect(
+            "IndexerConfig must accept u128 fields as JSON strings — this is \
+             the wire format the TypeScript SDK produces because JS numbers \
+             cannot represent values above 2^53 without precision loss.",
+        );
+        assert_eq!(cfg.reward_per_epoch, 100_000_000_000_000_000);
+        assert_eq!(cfg.min_indexer_stake, 100_000_000_000_000_000_000_000);
+    }
+
+    /// Rust SDK (and old clients) still emit u128 as raw JSON numbers.
+    /// That form must keep working too.
+    #[test]
+    fn indexer_config_accepts_number_u128_fields() {
+        let json_from_rust_sdk = r#"{
+            "min_indexers": 1,
+            "max_indexers": 3,
+            "reward_per_epoch": 100000000000000000,
+            "epoch_length": 100,
+            "min_indexer_stake": 100000000000000000000000
+        }"#;
+
+        let cfg: IndexerConfig = serde_json::from_str(json_from_rust_sdk).expect(
+            "IndexerConfig must still accept u128 fields as JSON numbers — \
+             Rust-side serialization emits them that way.",
+        );
+        assert_eq!(cfg.reward_per_epoch, 100_000_000_000_000_000);
+        assert_eq!(cfg.min_indexer_stake, 100_000_000_000_000_000_000_000);
     }
 }

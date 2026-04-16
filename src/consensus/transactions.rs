@@ -146,6 +146,7 @@ pub struct TransferTx {
     /// DID of the recipient.
     pub to_did: String,
     /// Amount of WILL tokens to transfer.
+    #[serde(with = "crate::serde_helpers::u128_flexible")]
     pub amount: u128,
     /// Optional memo/note for the transfer.
     pub memo: Option<String>,
@@ -163,6 +164,7 @@ pub struct StakeTx {
     /// DID of the validator.
     pub validator_did: String,
     /// Amount of WILL tokens to stake.
+    #[serde(with = "crate::serde_helpers::u128_flexible")]
     pub amount: u128,
     /// Public key for CometBFT consensus participation.
     pub consensus_pubkey: String,
@@ -180,6 +182,7 @@ pub struct UnstakeTx {
     /// DID of the validator unstaking.
     pub validator_did: String,
     /// Amount of WILL tokens to unstake.
+    #[serde(with = "crate::serde_helpers::u128_flexible")]
     pub amount: u128,
     /// Cryptographic signature from the validator.
     pub signature: Vec<u8>,
@@ -216,7 +219,7 @@ pub struct RegisterSubgroveTx {
     pub admins: Vec<String>,
     /// Optional initial funding amount (in smallest token unit) to atomically
     /// fund the subgrove during registration.
-    #[serde(default)]
+    #[serde(default, with = "crate::serde_helpers::option_u128_flexible")]
     pub initial_funding: Option<u128>,
     /// Checkpoint verification configuration.
     /// Optionally requires TEE attestation for checkpoint submissions.
@@ -245,6 +248,7 @@ pub struct FundSubgroveTx {
     /// Subgrove to fund.
     pub subgrove_id: String,
     /// Amount of WILL tokens to add.
+    #[serde(with = "crate::serde_helpers::u128_flexible")]
     pub amount: u128,
     /// DID of the funder.
     pub from_did: String,
@@ -633,6 +637,7 @@ pub struct RegisterStorageNodeTx {
     /// Advertised storage capacity in bytes.
     pub capacity_bytes: u64,
     /// Amount of WILL tokens to stake.
+    #[serde(with = "crate::serde_helpers::u128_flexible")]
     pub stake_amount: u128,
     /// Cryptographic signature from the operator.
     pub signature: Vec<u8>,

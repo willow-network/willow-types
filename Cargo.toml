@@ -8,7 +8,12 @@ license = "MIT"
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+# `raw_value` is used by `serde_helpers::u128_flexible` to read a JSON
+# u128 losslessly regardless of whether the sender encoded it as a
+# number (Rust SDK) or a string (TypeScript SDK). Without it,
+# serde_json's default `deserialize_any` path routes large integers
+# through f64 and silently loses precision above 2^53.
+serde_json = { version = "1.0", features = ["raw_value"] }
 thiserror = "1.0"
 sha2 = "0.10"
 hex = "0.4"

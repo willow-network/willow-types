@@ -10,6 +10,7 @@ pub mod indexer_node;
 pub mod indexing;
 pub mod p2p;
 pub mod reputation;
+pub mod serde_helpers;
 pub mod state_sync;
 pub mod storage;
 pub mod tee;
