@@ -61,7 +61,35 @@ pub enum SubgroveMode {
         /// Defaults to Indefinite for backward compatibility.
         #[serde(default)]
         retention_window: RetentionWindow,
+        /// Optional commitments to the subgrove's log and transaction filters,
+        /// binding completeness proofs to the filters the subgrove was
+        /// registered with. See
+        /// `docs/todo/proposal-completeness-hand-written-circuit.md`.
+        /// `None` = subgrove does not opt into completeness proofs (backward-
+        /// compatible with existing registrations).
+        #[serde(default)]
+        completeness: Option<CompletenessCommitments>,
     },
+}
+
+/// Commitments to a subgrove's filter definitions, used as public inputs to
+/// completeness proofs. Each field is a Poseidon2 digest produced by the
+/// corresponding `willow_gkr::circuits::completeness_direct::native_*_config_hash`
+/// oracle over the canonical byte serialization of the filter.
+///
+/// Stored element-wise as `u32` (reduced M31 field values) so that
+/// `willow-types` doesn't have to depend on `willow-gkr`. The consensus /
+/// proof-verification layer converts to `[M31; 4]` at use time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompletenessCommitments {
+    /// Commitment to the log filter (see `SubgroveFilter` in `willow-gkr`).
+    /// For the canonical "match all logs" filter use
+    /// `willow_gkr::circuits::completeness_direct::EMPTY_LOG_CONFIG_HASH`.
+    pub log_config_hash: [u32; 4],
+    /// Commitment to the transaction filter (see `TransactionFilter` in
+    /// `willow-gkr`). For the canonical "match all transactions" filter use
+    /// `willow_gkr::circuits::completeness_direct::EMPTY_TX_CONFIG_HASH`.
+    pub tx_config_hash: [u32; 4],
 }
 
 /// Default subgrove mode: DataStorage with empty defaults.
