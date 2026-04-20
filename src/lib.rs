@@ -15,6 +15,7 @@ pub mod state_sync;
 pub mod storage;
 pub mod tee;
 pub mod token;
+pub mod verifiable_rpc;
 
 // Re-export commonly used types at the crate root
 pub use consensus::transactions::Transaction;

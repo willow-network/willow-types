@@ -61,6 +61,32 @@ pub mod u128_flexible {
     }
 }
 
+/// Serialize `Vec<u8>` as base64 (URL-safe, no padding) for compact JSON.
+///
+/// `serde_json`'s default representation of `Vec<u8>` is a JSON array of
+/// numbers — fine for short fields like a 32-byte hash but catastrophic for
+/// multi-kilobyte binary blobs (a GKR proof or a GroveDB proof). This helper
+/// encodes as base64 instead, keeping JSON payloads compact without giving up
+/// on JSON as the transport.
+pub mod bytes_base64 {
+    use base64::engine::general_purpose::STANDARD_NO_PAD;
+    use base64::Engine;
+    use serde::de::Error as DeError;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(value: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error> {
+        let encoded = STANDARD_NO_PAD.encode(value);
+        serializer.serialize_str(&encoded)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<u8>, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        STANDARD_NO_PAD
+            .decode(s.as_bytes())
+            .map_err(|e| D::Error::custom(format!("invalid base64: {}", e)))
+    }
+}
+
 /// Same as [`u128_flexible`] but for `Option<u128>` fields.
 ///
 /// Explicit `null` (or an absent field paired with `#[serde(default)]`)
