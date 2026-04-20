@@ -234,6 +234,9 @@ pub struct RegisterSubgroveTx {
     /// Optional initial key grant for the owner (when privacy is enabled).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub initial_owner_key_grant: Option<crate::storage::EncryptedKeyGrant>,
+    /// ZK-template binding for GkrExecution mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub template_config: Option<crate::storage::TemplateSubgroveConfig>,
     /// Cryptographic signature from the owner.
     pub signature: Vec<u8>,
     /// ID of the public key used for signing.
