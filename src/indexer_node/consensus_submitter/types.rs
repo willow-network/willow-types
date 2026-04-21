@@ -1,4 +1,6 @@
-use crate::consensus::indexing_transactions::{EventInclusionProof, GkrProofData};
+use crate::consensus::indexing_transactions::{
+    EventInclusionProof, GkrProofData, TransactionInclusionProof,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -244,6 +246,24 @@ pub struct IndexedBlockSubmissionTx {
     /// Included when the subgrove requires event inclusion verification.
     #[serde(default)]
     pub event_proofs: Vec<EventInclusionProof>,
+    /// MPT proofs proving each tx exists in the block's transactions trie.
+    /// Required alongside `completeness_proof` for tx authentication.
+    #[serde(default)]
+    pub transaction_proofs: Vec<TransactionInclusionProof>,
+    /// Bincode-serialized `Vec<IndexedLog>` covering every log in the
+    /// block (not just matched). Kept as opaque bytes so willow-types
+    /// stays a leaf crate; consensus deserializes via willow-network.
+    #[serde(default)]
+    pub block_logs_bincode: Vec<u8>,
+    /// Bincode-serialized `Vec<IndexedTransaction>` covering every tx
+    /// in the block.
+    #[serde(default)]
+    pub block_transactions_bincode: Vec<u8>,
+    /// Serialized `BlockCompletenessProof` (from `willow-indexing`'s
+    /// completeness_prover). When present, consensus runs the
+    /// completeness-proof verification path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completeness_proof: Option<Vec<u8>>,
     /// Optional TEE attestation for TeeExecution mode.
     /// When present, consensus verifies the attestation instead of re-executing.
     #[serde(default, skip_serializing_if = "Option::is_none")]

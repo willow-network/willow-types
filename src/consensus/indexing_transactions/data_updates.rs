@@ -111,6 +111,23 @@ pub struct MptProof {
     pub proof_nodes: Vec<Vec<u8>>,
 }
 
+/// Proof that a transaction exists in a specific block.
+///
+/// Mirrors `EventInclusionProof` but for the transactions MPT (root
+/// = `transactions_root`) instead of the receipts MPT. Used by
+/// completeness-proof verification to authenticate every tx in a
+/// block against the light-client-verified header.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransactionInclusionProof {
+    /// Index of the transaction within the block.
+    pub tx_index: u64,
+    /// Raw RLP-encoded transaction as stored in the MPT leaf.
+    /// For EIP-2718 typed txs this includes the leading type byte.
+    pub raw_rlp: Vec<u8>,
+    /// Merkle Patricia Trie proof of tx inclusion at `tx_index`.
+    pub mpt_proof: MptProof,
+}
+
 /// Proof that transformation logic was executed correctly.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ExecutionProof {
