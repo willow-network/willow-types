@@ -117,27 +117,15 @@ pub struct GkrProofData {
     pub gpu_accelerated: bool,
 }
 
-/// zstd-compressed-then-base64 wrapper for the large binary proof blob.
-/// GKR proofs are highly repetitive (padded SIMD slots, structured sumcheck
-/// / PCS data), so zstd hits roughly 2-3x on them. Layered with base64 to
-/// survive JSON transport.
 mod base64_bytes {
     use base64::{engine::general_purpose::STANDARD, Engine};
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-    // Trades ~30% extra encode CPU for ~30% better ratio vs level 3 on our
-    // proof shape. Level 3 is zstd's default; bumping it is only worth it
-    // because we ship megabytes and validators verify the same bytes many
-    // times over.
-    const ZSTD_LEVEL: i32 = 7;
 
     pub fn serialize<S>(bytes: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        let compressed = zstd::encode_all(bytes.as_slice(), ZSTD_LEVEL)
-            .map_err(|e| serde::ser::Error::custom(format!("zstd encode: {}", e)))?;
-        STANDARD.encode(&compressed).serialize(serializer)
+        STANDARD.encode(bytes).serialize(serializer)
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
@@ -145,7 +133,6 @@ mod base64_bytes {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        let compressed = STANDARD.decode(&s).map_err(serde::de::Error::custom)?;
-        zstd::decode_all(compressed.as_slice()).map_err(serde::de::Error::custom)
+        STANDARD.decode(&s).map_err(serde::de::Error::custom)
     }
 }

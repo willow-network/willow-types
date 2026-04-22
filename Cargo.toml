@@ -18,7 +18,6 @@ thiserror = "1.0"
 sha2 = "0.10"
 hex = "0.4"
 base64 = "0.22"
-zstd = "0.13"
 chrono = { version = "0.4", features = ["serde"] }
 ciborium = "0.2"
 
