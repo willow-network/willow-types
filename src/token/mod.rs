@@ -143,7 +143,7 @@ impl Default for FeeSchedule {
             cost_per_byte: 86_400_000_000_000,                   // 0.0000864 WILL
             query_fee: 4_000_000_000_000_000,                    // 0.004 WILL
             transfer_fee_percentage: 10,                         // 0.1%
-            max_tx_size_bytes: 1_048_576,                        // 1 MB
+            max_tx_size_bytes: 67_108_864,                       // 64 MB
             max_data_payload_bytes: 524_288,                     // 512 KB
         }
     }

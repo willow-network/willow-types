@@ -67,7 +67,7 @@ pub enum GkrHashFunction {
 ///
 /// These values are visible to the verifier and bind the proof to specific
 /// input data, output data, and configuration.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GkrPublicInputs {
     /// SHA256 hash commitment to all input events (raw Ethereum data).
     pub input_commitment: [u8; 32],
@@ -81,12 +81,23 @@ pub struct GkrPublicInputs {
     /// Hash of the subgrove configuration used for transformation.
     /// Ensures the correct transformation rules were applied.
     pub config_hash: [u8; 32],
+
+    /// Merkle root of the starting state this proof transitioned from.
+    /// Validator enforces starting_state_root == last block's output_root
+    /// to chain proofs cryptographically. Zeroed for circuits without
+    /// state, and for the genesis block of a stateful subgrove.
+    #[serde(default)]
+    pub starting_state_root: [u8; 32],
 }
 
 /// Complete GKR proof data for submission and verification.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GkrProofData {
-    /// The serialized GKR proof bytes.
+    /// The serialized GKR proof bytes. Base64-encoded on the wire so
+    /// JSON-serialized txs don't blow up 4x (default serde_json encoding
+    /// of Vec<u8> is a numeric array like [131, 7, ...]). A ~3.7MB proof
+    /// becomes ~15MB as a number array; base64 keeps it at ~5MB.
+    #[serde(with = "base64_bytes")]
     pub proof: Vec<u8>,
 
     /// Public inputs that bind the proof to specific data.
@@ -104,4 +115,37 @@ pub struct GkrProofData {
 
     /// Whether the proof was generated using GPU acceleration.
     pub gpu_accelerated: bool,
+}
+
+/// zstd-compressed-then-base64 wrapper for the large binary proof blob.
+/// GKR proofs are highly repetitive (padded SIMD slots, structured sumcheck
+/// / PCS data), so zstd hits roughly 2-3x on them. Layered with base64 to
+/// survive JSON transport.
+mod base64_bytes {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    // Trades ~30% extra encode CPU for ~30% better ratio vs level 3 on our
+    // proof shape. Level 3 is zstd's default; bumping it is only worth it
+    // because we ship megabytes and validators verify the same bytes many
+    // times over.
+    const ZSTD_LEVEL: i32 = 7;
+
+    pub fn serialize<S>(bytes: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let compressed = zstd::encode_all(bytes.as_slice(), ZSTD_LEVEL)
+            .map_err(|e| serde::ser::Error::custom(format!("zstd encode: {}", e)))?;
+        STANDARD.encode(&compressed).serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        let compressed = STANDARD.decode(&s).map_err(serde::de::Error::custom)?;
+        zstd::decode_all(compressed.as_slice()).map_err(serde::de::Error::custom)
+    }
 }

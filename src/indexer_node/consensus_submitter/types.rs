@@ -231,7 +231,11 @@ pub struct IndexedBlockSubmissionTx {
     pub parent_hash: [u8; 32],
     /// Hash of the indexed data
     pub data_hash: [u8; 32],
-    /// The actual indexed data (serialized)
+    /// The actual indexed data (serialized). Base64-encoded on the JSON
+    /// wire — this is a bincode-serialized IndexedBlock and can be ~1–2MB
+    /// for a busy Ethereum block, so default number-array encoding bloats
+    /// it ~4x.
+    #[serde(with = "base64_bytes")]
     pub indexed_data: Vec<u8>,
     /// Block header commitment for L1 verification
     pub block_header: BlockHeaderCommitment,
@@ -276,4 +280,24 @@ pub struct IndexedBlockSubmissionTx {
     pub signature: Vec<u8>,
     /// Nonce for replay protection
     pub nonce: u64,
+}
+
+mod base64_bytes {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S>(bytes: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        STANDARD.encode(bytes).serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        STANDARD.decode(&s).map_err(serde::de::Error::custom)
+    }
 }
