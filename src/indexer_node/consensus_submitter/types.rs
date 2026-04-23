@@ -231,11 +231,7 @@ pub struct IndexedBlockSubmissionTx {
     pub parent_hash: [u8; 32],
     /// Hash of the indexed data
     pub data_hash: [u8; 32],
-    /// The actual indexed data (serialized). Base64-encoded on the JSON
-    /// wire — this is a bincode-serialized IndexedBlock and can be ~1–2MB
-    /// for a busy Ethereum block, so default number-array encoding bloats
-    /// it ~4x.
-    #[serde(with = "base64_bytes")]
+    /// The actual indexed data (bincode-serialized IndexedBlock).
     pub indexed_data: Vec<u8>,
     /// Block header commitment for L1 verification
     pub block_header: BlockHeaderCommitment,
@@ -243,7 +239,7 @@ pub struct IndexedBlockSubmissionTx {
     /// When present, consensus verifies the proof cryptographically.
     /// When absent, consensus uses direct execution or sampling-based re-execution
     /// (depending on the subgrove's execution mode).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub gkr_proof: Option<GkrProofData>,
     /// MPT proofs proving each input event exists in the block's receipts.
     /// Verified against `block_header.receipts_root`.
@@ -268,11 +264,11 @@ pub struct IndexedBlockSubmissionTx {
     /// tx chunk, so blocks with more than a single circuit batch's worth
     /// of logs or txs can still be proven. When present, consensus runs
     /// the completeness-proof verification path.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub completeness_proof: Option<Vec<u8>>,
     /// Optional TEE attestation for TeeExecution mode.
     /// When present, consensus verifies the attestation instead of re-executing.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub tee_attestation: Option<crate::tee::TeeAttestation>,
     /// Storage cost for this data
     pub storage_cost: u128,
@@ -282,24 +278,4 @@ pub struct IndexedBlockSubmissionTx {
     pub signature: Vec<u8>,
     /// Nonce for replay protection
     pub nonce: u64,
-}
-
-mod base64_bytes {
-    use base64::{engine::general_purpose::STANDARD, Engine};
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-    pub fn serialize<S>(bytes: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        STANDARD.encode(bytes).serialize(serializer)
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        STANDARD.decode(&s).map_err(serde::de::Error::custom)
-    }
 }

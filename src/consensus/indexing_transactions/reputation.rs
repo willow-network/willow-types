@@ -119,7 +119,6 @@ pub struct RecordFundingSourceTx {
     /// Transaction hash of the funding transaction.
     pub tx_hash: String,
     /// Amount funded (in wei).
-    #[serde(with = "crate::serde_helpers::u128_flexible")]
     pub amount: u128,
     /// Cryptographic signature from the indexer.
     pub signature: Vec<u8>,

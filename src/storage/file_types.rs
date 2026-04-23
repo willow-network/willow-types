@@ -53,7 +53,7 @@ pub struct FileManifest {
     /// Unix timestamp of last metadata update.
     pub updated_at: u64,
     /// Optional encryption metadata (for private file subgroves).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub encryption: Option<FileEncryption>,
 }
 

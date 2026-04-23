@@ -146,7 +146,6 @@ pub struct TransferTx {
     /// DID of the recipient.
     pub to_did: String,
     /// Amount of WILL tokens to transfer.
-    #[serde(with = "crate::serde_helpers::u128_flexible")]
     pub amount: u128,
     /// Optional memo/note for the transfer.
     pub memo: Option<String>,
@@ -164,7 +163,6 @@ pub struct StakeTx {
     /// DID of the validator.
     pub validator_did: String,
     /// Amount of WILL tokens to stake.
-    #[serde(with = "crate::serde_helpers::u128_flexible")]
     pub amount: u128,
     /// Public key for CometBFT consensus participation.
     pub consensus_pubkey: String,
@@ -182,7 +180,6 @@ pub struct UnstakeTx {
     /// DID of the validator unstaking.
     pub validator_did: String,
     /// Amount of WILL tokens to unstake.
-    #[serde(with = "crate::serde_helpers::u128_flexible")]
     pub amount: u128,
     /// Cryptographic signature from the validator.
     pub signature: Vec<u8>,
@@ -219,7 +216,7 @@ pub struct RegisterSubgroveTx {
     pub admins: Vec<String>,
     /// Optional initial funding amount (in smallest token unit) to atomically
     /// fund the subgrove during registration.
-    #[serde(default, with = "crate::serde_helpers::option_u128_flexible")]
+    #[serde(default)]
     pub initial_funding: Option<u128>,
     /// Checkpoint verification configuration.
     /// Optionally requires TEE attestation for checkpoint submissions.
@@ -229,13 +226,13 @@ pub struct RegisterSubgroveTx {
     #[serde(default = "super::indexing_transactions::default_data_storage_mode")]
     pub mode: super::indexing_transactions::SubgroveMode,
     /// Optional privacy configuration for private subgroves.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub privacy: Option<crate::storage::PrivacyConfig>,
     /// Optional initial key grant for the owner (when privacy is enabled).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub initial_owner_key_grant: Option<crate::storage::EncryptedKeyGrant>,
     /// ZK-template binding for GkrExecution mode.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub template_config: Option<crate::storage::TemplateSubgroveConfig>,
     /// Cryptographic signature from the owner.
     pub signature: Vec<u8>,
@@ -251,7 +248,6 @@ pub struct FundSubgroveTx {
     /// Subgrove to fund.
     pub subgrove_id: String,
     /// Amount of WILL tokens to add.
-    #[serde(with = "crate::serde_helpers::u128_flexible")]
     pub amount: u128,
     /// DID of the funder.
     pub from_did: String,
@@ -408,8 +404,9 @@ pub struct StoreDataTx {
     pub subgrove_id: String,
     /// Key for the data entry.
     pub key: String,
-    /// JSON data to store.
-    pub data: serde_json::Value,
+    /// JSON-encoded data bytes. Bincode round-trips this as a length-prefixed
+    /// `Vec<u8>`; server-side parses to `serde_json::Value` on demand.
+    pub data: Vec<u8>,
     /// DID of the data owner.
     pub owner_did: String,
     /// Cryptographic signature from the owner.
@@ -427,8 +424,8 @@ pub struct UpdateDataTx {
     pub subgrove_id: String,
     /// Key of the data entry to update.
     pub key: String,
-    /// New JSON data.
-    pub data: serde_json::Value,
+    /// JSON-encoded data bytes. See `StoreDataTx::data`.
+    pub data: Vec<u8>,
     /// DID of the data owner (must match existing entry).
     pub owner_did: String,
     /// Cryptographic signature from the owner.
@@ -555,10 +552,10 @@ pub struct PrivateSubgroveCommitmentTx {
     pub storage_size: u64,
     /// Optional GKR proof for BlockchainIndexing private subgroves.
     /// Proves the latest batch of indexed data was correctly computed from source chain events.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub gkr_proof: Option<crate::consensus::indexing_transactions::GkrProofData>,
     /// Optional TEE attestation of the commitment.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub tee_attestation: Option<crate::tee::TeeAttestation>,
     /// Unix timestamp of this commitment.
     pub timestamp: u64,
@@ -598,7 +595,7 @@ pub struct StoreFileManifestTx {
     /// DID of the file owner.
     pub owner_did: String,
     /// Optional encryption metadata (for private file subgroves).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub encryption: Option<crate::storage::FileEncryption>,
     /// Cryptographic signature from the owner.
     pub signature: Vec<u8>,
@@ -640,7 +637,6 @@ pub struct RegisterStorageNodeTx {
     /// Advertised storage capacity in bytes.
     pub capacity_bytes: u64,
     /// Amount of WILL tokens to stake.
-    #[serde(with = "crate::serde_helpers::u128_flexible")]
     pub stake_amount: u128,
     /// Cryptographic signature from the operator.
     pub signature: Vec<u8>,

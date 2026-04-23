@@ -14,7 +14,6 @@ pub struct OpenBisectionDisputeTx {
     /// Challenger's intermediate hashes commitment (Merkle root over accumulated hashes).
     pub challenger_intermediate_commitment: [u8; 32],
     /// Bond amount being posted (must be >= DISPUTE_BOND).
-    #[serde(with = "crate::serde_helpers::u128_flexible")]
     pub bond_amount: u128,
     /// Reason for the dispute.
     pub reason: String,
@@ -269,7 +268,6 @@ pub struct OpenCommitmentDisputeTx {
     /// Specific key at that path to challenge.
     pub challenge_key: Vec<u8>,
     /// Bond amount being posted (must be >= COMMITMENT_DISPUTE_BOND).
-    #[serde(with = "crate::serde_helpers::u128_flexible")]
     pub bond_amount: u128,
     /// Reason for the dispute.
     pub reason: String,

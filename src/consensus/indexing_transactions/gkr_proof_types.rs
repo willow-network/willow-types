@@ -93,11 +93,7 @@ pub struct GkrPublicInputs {
 /// Complete GKR proof data for submission and verification.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GkrProofData {
-    /// The serialized GKR proof bytes. Base64-encoded on the wire so
-    /// JSON-serialized txs don't blow up 4x (default serde_json encoding
-    /// of Vec<u8> is a numeric array like [131, 7, ...]). A ~3.7MB proof
-    /// becomes ~15MB as a number array; base64 keeps it at ~5MB.
-    #[serde(with = "base64_bytes")]
+    /// The serialized GKR proof bytes.
     pub proof: Vec<u8>,
 
     /// Public inputs that bind the proof to specific data.
@@ -115,24 +111,4 @@ pub struct GkrProofData {
 
     /// Whether the proof was generated using GPU acceleration.
     pub gpu_accelerated: bool,
-}
-
-mod base64_bytes {
-    use base64::{engine::general_purpose::STANDARD, Engine};
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-    pub fn serialize<S>(bytes: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        STANDARD.encode(bytes).serialize(serializer)
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        STANDARD.decode(&s).map_err(serde::de::Error::custom)
-    }
 }

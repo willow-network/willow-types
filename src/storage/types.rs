@@ -92,12 +92,12 @@ pub struct SubgroveRegistration {
         crate::consensus::indexing_transactions::CheckpointVerificationConfig,
     /// Optional template configuration for GKR-provable indexing.
     /// Present when the subgrove was registered using a template.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub template_config: Option<TemplateSubgroveConfig>,
     /// Optional privacy configuration for private subgroves.
     /// When present, data stays with the provider and only state root
     /// commitments go on-chain.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub privacy: Option<PrivacyConfig>,
     /// Retention window for real-time indexed data on consensus nodes.
     /// Only meaningful for BlockchainIndexing subgroves.
@@ -122,9 +122,12 @@ pub struct TemplateSubgroveConfig {
     pub template_version: u32,
     /// The selected circuit variant (e.g., "fixed8", "fixed64", "sparse").
     pub variant_id: String,
-    /// Serialized parameter values used for this instance.
-    /// These are the validated parameters that were used to configure the template.
-    pub parameters: HashMap<String, serde_json::Value>,
+    /// JSON-encoded parameter values used for this instance.
+    /// Stored as bytes so the struct roundtrips through bincode
+    /// (`serde_json::Value::deserialize` calls `deserialize_any`, which
+    /// bincode — a non-self-describing format — does not support).
+    /// Consumers parse to `HashMap<String, serde_json::Value>` on demand.
+    pub parameters: Vec<u8>,
     /// Contracts to index (ethereum addresses as hex strings).
     pub contracts: Vec<String>,
     /// Event signatures to filter (keccak256 hashes as hex strings).
@@ -211,7 +214,7 @@ pub struct PrivacyConfig {
     /// Optional whitelist of indexer DIDs allowed to index this subgrove.
     /// When Some, only these DIDs can submit IndexedBlockSubmissionTx / HistoricalCheckpointTx.
     /// When None, open marketplace (existing behavior).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub allowed_indexers: Option<Vec<String>>,
     /// How often the provider must commit state roots to consensus.
     pub commitment_frequency: CommitmentFrequency,

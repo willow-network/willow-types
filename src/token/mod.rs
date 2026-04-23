@@ -371,7 +371,6 @@ pub struct X402PaymentPayload {
     /// Amount being paid as a string.
     pub amount: String,
     /// Cryptographic signature authorizing the payment.
-    #[serde(with = "base64_bytes")]
     pub signature: Vec<u8>,
     /// Public key ID used for signing.
     pub public_key_id: String,
@@ -577,28 +576,6 @@ pub struct SlashingAction {
     pub slash_amount: u128,
     /// When the slashing occurred (Unix timestamp).
     pub timestamp: u64,
-}
-
-/// Helper module for base64 serialization of byte arrays.
-mod base64_bytes {
-    use base64::{engine::general_purpose::STANDARD, Engine};
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-    pub fn serialize<S>(bytes: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let encoded = STANDARD.encode(bytes);
-        encoded.serialize(serializer)
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let encoded = String::deserialize(deserializer)?;
-        STANDARD.decode(&encoded).map_err(serde::de::Error::custom)
-    }
 }
 
 #[cfg(test)]

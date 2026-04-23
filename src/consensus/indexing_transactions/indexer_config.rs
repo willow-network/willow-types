@@ -14,7 +14,6 @@ pub struct RegisterIndexerTx {
     /// List of subgrove IDs this indexer will process.
     pub subgroves: Vec<String>,
     /// Amount of WILL tokens to stake (minimum 100,000 WILL).
-    #[serde(with = "crate::serde_helpers::u128_flexible")]
     pub stake_amount: u128,
     /// HTTP endpoint for monitoring and health checks.
     pub endpoint: String,
@@ -69,7 +68,6 @@ pub struct IndexerConfig {
     ///
     /// Accepts both a JSON number (Rust SDK) and a JSON string (TS SDK)
     /// on the wire — see `crate::serde_helpers::u128_flexible`.
-    #[serde(with = "crate::serde_helpers::u128_flexible")]
     pub reward_per_epoch: u128,
 
     /// Length of an epoch in blocks. Default: 100.
@@ -81,7 +79,6 @@ pub struct IndexerConfig {
     ///
     /// Accepts both a JSON number (Rust SDK) and a JSON string (TS SDK)
     /// on the wire — see `crate::serde_helpers::u128_flexible`.
-    #[serde(with = "crate::serde_helpers::u128_flexible")]
     pub min_indexer_stake: u128,
 }
 

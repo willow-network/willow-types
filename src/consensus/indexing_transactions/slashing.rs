@@ -137,7 +137,6 @@ pub struct CollectQueryFeesTx {
     /// Number of queries served in this period.
     pub query_count: u64,
     /// Total fees earned in WILL tokens.
-    #[serde(with = "crate::serde_helpers::u128_flexible")]
     pub total_fees: u128,
     /// Cryptographic signature from the indexer.
     pub signature: Vec<u8>,
@@ -183,7 +182,6 @@ pub struct SlashIndexerTx {
     pub proposer_did: String,
     /// Bond amount posted by the proposer (must be >= SLASH_PROPOSAL_BOND).
     /// Forfeited to the accused indexer if evidence is invalid.
-    #[serde(with = "crate::serde_helpers::u128_flexible")]
     pub bond_amount: u128,
     /// Cryptographic signature from the proposer.
     pub signature: Vec<u8>,
