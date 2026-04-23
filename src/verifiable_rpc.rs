@@ -128,6 +128,7 @@ mod tests {
                 output_root: [2; 32],
                 block_range: (100, 200),
                 config_hash: [3; 32],
+                starting_state_root: [0; 32],
             },
             verification_key_hash: [4; 32],
             proof_size_bytes: 256,
