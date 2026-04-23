@@ -263,9 +263,11 @@ pub struct IndexedBlockSubmissionTx {
     /// in the block.
     #[serde(default)]
     pub block_transactions_bincode: Vec<u8>,
-    /// Serialized `BlockCompletenessProof` (from `willow-indexing`'s
-    /// completeness_prover). When present, consensus runs the
-    /// completeness-proof verification path.
+    /// Serialized `ChunkedBlockCompletenessProof` (from `willow-indexing`'s
+    /// completeness_prover). Carries one GKR proof per fixed-size log /
+    /// tx chunk, so blocks with more than a single circuit batch's worth
+    /// of logs or txs can still be proven. When present, consensus runs
+    /// the completeness-proof verification path.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub completeness_proof: Option<Vec<u8>>,
     /// Optional TEE attestation for TeeExecution mode.
