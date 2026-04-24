@@ -66,12 +66,15 @@ pub enum GkrHashFunction {
 /// Public inputs for GKR proof verification.
 ///
 /// These values are visible to the verifier and bind the proof to specific
-/// input data, output data, and configuration.
+/// output data and configuration. Events binding is handled inside the
+/// circuit via Poseidon (`pub_input_events_hash`); the browser pulls that
+/// value out of the proof's circuit-public-input region and compares
+/// against `events_hash(real Ethereum logs)` from a light client. There
+/// is intentionally no separate SHA-256 wrapper for events here — that
+/// field used to exist (`input_commitment`) but it duplicated the
+/// circuit-internal binding without adding cryptographic strength.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GkrPublicInputs {
-    /// SHA256 hash commitment to all input events (raw Ethereum data).
-    pub input_commitment: [u8; 32],
-
     /// Merkle root of the output entities (indexed data after transformation).
     pub output_root: [u8; 32],
 

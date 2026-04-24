@@ -124,7 +124,6 @@ mod tests {
         GkrProofData {
             proof: vec![0xaau8; 256],
             public_inputs: GkrPublicInputs {
-                input_commitment: [1; 32],
                 output_root: [2; 32],
                 block_range: (100, 200),
                 config_hash: [3; 32],
