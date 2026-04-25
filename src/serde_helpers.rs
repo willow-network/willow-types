@@ -87,6 +87,38 @@ pub mod bytes_base64 {
     }
 }
 
+/// `Option<Vec<u8>>` companion for [`bytes_base64`]. `None` serializes
+/// as JSON `null`; `Some(_)` serializes as the base64 string the
+/// unwrapped helper produces.
+pub mod option_bytes_base64 {
+    use base64::engine::general_purpose::STANDARD_NO_PAD;
+    use base64::Engine;
+    use serde::de::Error as DeError;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(
+        value: &Option<Vec<u8>>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        match value {
+            Some(bytes) => serializer.serialize_str(&STANDARD_NO_PAD.encode(bytes)),
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<Vec<u8>>, D::Error> {
+        let opt: Option<String> = Option::deserialize(deserializer)?;
+        opt.map(|s| {
+            STANDARD_NO_PAD
+                .decode(s.as_bytes())
+                .map_err(|e| D::Error::custom(format!("invalid base64: {}", e)))
+        })
+        .transpose()
+    }
+}
+
 /// Same as [`u128_flexible`] but for `Option<u128>` fields.
 ///
 /// Explicit `null` (or an absent field paired with `#[serde(default)]`)

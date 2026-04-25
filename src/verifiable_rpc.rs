@@ -45,8 +45,10 @@ pub struct VerifiableRpcResponse {
     /// Latest checkpoint ID this indexer has for the subgrove.
     pub checkpoint_id: [u8; 32],
 
-    /// State root the answer is proven against. Equals
-    /// `gkr_proof.public_inputs.output_root` when a GKR proof is present.
+    /// State root the answer is proven against. For single-chunk
+    /// transformations this equals `gkr_proofs[0].public_inputs.output_root`;
+    /// for chunked transformations, it equals the *last* chunk's
+    /// `output_root` (the block's final transformed state).
     pub state_root: [u8; 32],
 
     /// Inclusive block range covered by the checkpoint that produced
@@ -58,13 +60,35 @@ pub struct VerifiableRpcResponse {
     #[serde(with = "crate::serde_helpers::bytes_base64")]
     pub grovedb_proof: Vec<u8>,
 
-    /// GKR proof that `state_root` is the correct output of the subgrove's
-    /// indexing transformation over the committed event set.
+    /// GKR proofs of correct transformation, one per chunk.
     ///
-    /// Absent when this indexer has not yet generated a proof for the
-    /// current checkpoint (typical shortly after startup or after a new
-    /// checkpoint is accepted).
-    pub gkr_proof: Option<GkrProofData>,
+    /// - Empty: the indexer hasn't generated proofs for the current
+    ///   checkpoint yet (typical shortly after startup or right after
+    ///   a new checkpoint is accepted). Strict-mode clients reject;
+    ///   GroveDB-only clients can still trust the answer by anchoring
+    ///   against consensus.
+    /// - Length 1: single-chunk submission (matched events fit in one
+    ///   circuit batch). Mirrors the bulk of real-world traffic.
+    /// - Length > 1: chunked submission. The indexer generated one
+    ///   transformation proof per chunk of `COMPLETENESS_LOG_BATCH`
+    ///   matched events; chunk i+1's `starting_state_root` chains to
+    ///   chunk i's `output_root`. Browsers verify each chunk in turn
+    ///   and confirm the final chunk's `output_root == state_root`.
+    #[serde(default)]
+    pub gkr_proofs: Vec<GkrProofData>,
+
+    /// Serialized `ChunkedBlockCompletenessProof` for the same
+    /// checkpoint. Present when the subgrove is completeness-enabled
+    /// and the indexer kept the proof for this checkpoint.
+    ///
+    /// Browsers consume this via
+    /// `gkr_verify_wasm::verify_chunked_block_completeness` to verify
+    /// independently of the transformation proof, closing the
+    /// indexer-subset-picking attack on the browser side that
+    /// consensus already catches.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(with = "crate::serde_helpers::option_bytes_base64")]
+    pub completeness_proof: Option<Vec<u8>>,
 
     /// When the indexer generated this response (unix seconds). Used by the
     /// client to enforce a freshness bound.
@@ -148,7 +172,8 @@ mod tests {
             state_root: proof.public_inputs.output_root,
             block_range: proof.public_inputs.block_range,
             grovedb_proof: vec![0x55; 128],
-            gkr_proof: Some(proof.clone()),
+            gkr_proofs: vec![proof.clone()],
+            completeness_proof: None,
             served_at_unix_secs: 1_700_000_000,
         };
 
@@ -169,7 +194,8 @@ mod tests {
         assert_eq!(parsed.grovedb_proof, resp.grovedb_proof);
         assert_eq!(parsed.state_root, resp.state_root);
         assert_eq!(parsed.block_range, resp.block_range);
-        let parsed_proof = parsed.gkr_proof.expect("gkr_proof preserved");
+        assert_eq!(parsed.gkr_proofs.len(), 1, "gkr_proofs vec preserved");
+        let parsed_proof = &parsed.gkr_proofs[0];
         assert_eq!(parsed_proof.proof, proof.proof);
         assert_eq!(parsed_proof.public_inputs, proof.public_inputs);
         assert_eq!(
