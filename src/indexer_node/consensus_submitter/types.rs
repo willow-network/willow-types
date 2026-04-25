@@ -235,28 +235,22 @@ pub struct IndexedBlockSubmissionTx {
     pub indexed_data: Vec<u8>,
     /// Block header commitment for L1 verification
     pub block_header: BlockHeaderCommitment,
-    /// Optional GKR proof of correct transformation.
-    /// When present, consensus verifies the proof cryptographically.
-    /// When absent, consensus uses direct execution or sampling-based re-execution
-    /// (depending on the subgrove's execution mode).
+    /// GKR proofs of correct transformation, one per chunk.
     ///
-    /// For blocks whose matched-event count exceeds the transformation
-    /// circuit's batch size, this is the *first* chunk's proof and the
-    /// remainder ride along in `additional_gkr_proof_chunks`. Single-
-    /// chunk submissions leave `additional_gkr_proof_chunks` empty.
+    /// Empty `Vec` = no transformation proof; consensus falls back to
+    /// direct execution or sampling-based re-execution per the
+    /// subgrove's execution mode.
+    ///
+    /// Length 1 = single-chunk submission (the common case: matched
+    /// events fit into one circuit batch).
+    ///
+    /// Length > 1 = chunked: the indexer generated `ceil(N / BATCH_8)`
+    /// transformation proofs over consecutive chunks of filter-matched
+    /// events. Chunk i's `starting_state_root` chains to chunk i-1's
+    /// `output_root` (intra-block continuity), and consensus chain-
+    /// links each chunk to its slice of the authenticated `block_logs`.
     #[serde(default)]
-    pub gkr_proof: Option<GkrProofData>,
-    /// Chunks 1..K of a multi-chunk transformation submission. Used
-    /// when matched events for a block exceed `BATCH_8` and the indexer
-    /// generates ceil(N / BATCH_8) transformation proofs, one per
-    /// chunk. Chunk 0 lives in `gkr_proof`; chunks 1..K live here.
-    /// Each chunk's `starting_state_root` chains to the previous chunk's
-    /// `output_root` (intra-block continuity), and consensus chain-links
-    /// each chunk to its slice of the filter-matched logs.
-    /// Empty for single-chunk submissions, preserving the pre-chunked
-    /// path bit-for-bit.
-    #[serde(default)]
-    pub additional_gkr_proof_chunks: Vec<GkrProofData>,
+    pub gkr_proofs: Vec<GkrProofData>,
     /// MPT proofs proving each input event exists in the block's receipts.
     /// Verified against `block_header.receipts_root`.
     /// Included when the subgrove requires event inclusion verification.
