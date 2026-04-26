@@ -175,28 +175,28 @@ pub struct HistoricalHeaderProof {
     /// the verifier reproduces it from `state_to_block_root_branch` and
     /// confirms `block_to_receipts_root_branch` resolves under it.
     pub past_beacon_block_root: [u8; 32],
-    /// SSZ Merkle branch from the recent beacon state root
-    /// (derived from `anchor_beacon_root`'s state_root field) all the
-    /// way through `historical_summaries[i].block_summary_root[k]`
-    /// down to `past_beacon_block_root`. Decoded shape: bincode of
-    /// `Vec<[u8; 32]>` carrying every sibling hash along the path,
-    /// in leaf-to-root order. Verifier reconstructs the path indices
-    /// from `past_beacon_slot` plus the active fork's generalized
-    /// indices.
-    pub state_to_block_root_branch: Vec<u8>,
-    /// SSZ Merkle branch from `past_beacon_block_root` down to the
-    /// `execution_payload.receipts_root` field of the historical
-    /// beacon block. Same encoding as above. Verifier confirms
-    /// the resolved value equals `BlockHeaderCommitment.receipts_root`.
-    pub block_to_receipts_root_branch: Vec<u8>,
-    /// SSZ Merkle branch from `past_beacon_block_root` down to the
-    /// `execution_payload.transactions_root` field of the same beacon
-    /// block. Required because `verify_completeness_submission`
-    /// authenticates BOTH event-inclusion proofs (against
-    /// `receipts_root`) AND transaction-inclusion proofs (against
-    /// `transactions_root`); the historical path has to deliver
-    /// trusted values for both.
-    pub block_to_transactions_root_branch: Vec<u8>,
+    /// SSZ Merkle branch chain proving `past_beacon_block_root`
+    /// (leaf) hashes up through `historical_summaries[i]
+    /// .block_summary_root[k]` and then up the BeaconState container
+    /// to `anchor_state_root` (root). Decoded shape: bincode of
+    /// `Vec<MerkleStep>` (see `willow_network::beacon::verify`).
+    /// The verifier confirms each step's hash chain reproduces the
+    /// step's `expected_root_after`, and that the final step
+    /// produces the trusted `anchor_state_root`.
+    pub block_root_to_state_root_branch: Vec<u8>,
+    /// SSZ Merkle branch chain proving `receipts_root` (leaf, taken
+    /// from `BlockHeaderCommitment.receipts_root`) hashes up through
+    /// `execution_payload` and `body` to `past_beacon_block_root`
+    /// (root).
+    pub receipts_root_to_block_root_branch: Vec<u8>,
+    /// SSZ Merkle branch chain proving `transactions_root` (leaf,
+    /// taken from `BlockHeaderCommitment.transactions_root`) hashes
+    /// up through `execution_payload` and `body` to
+    /// `past_beacon_block_root` (root). Both EL roots are
+    /// authenticated separately because
+    /// `verify_completeness_submission` runs MPT proofs against
+    /// each independently.
+    pub transactions_root_to_block_root_branch: Vec<u8>,
 }
 
 /// Subgrove configuration data used for hash computation.
