@@ -113,6 +113,71 @@ pub struct BlockHeaderCommitment {
     pub timestamp: u64,
 }
 
+/// Cryptographic proof that a `BlockHeaderCommitment` is the canonical
+/// post-Capella Ethereum header for its slot, anchored against an
+/// EIP-4788 beacon-block-root reading on the EL.
+///
+/// At chain tip the validator authenticates via Helios's sync-committee
+/// path. For arbitrary historical post-Capella blocks Helios doesn't
+/// reach, and we fall back to verifying:
+///
+/// ```text
+/// EIP-4788 storage at `anchor_el_block`  →  anchor_beacon_root
+///        ↓ (anchor_eip4788_proof: EIP-1186 storage proof)
+/// recent beacon state root (derived from anchor_beacon_root)
+///        ↓ (state → historical_summaries[i] SSZ Merkle branch)
+/// historical_summaries[i].block_summary_root
+///        ↓ (block_summary_root[k] SSZ Merkle branch)
+/// past_beacon_block_root  (= the slot containing our target EL block)
+///        ↓ (block.body.execution_payload.receipts_root SSZ branch)
+/// receipts_root  ←  matches BlockHeaderCommitment.receipts_root
+/// ```
+///
+/// The validator side runs all three Merkle verifications; only the
+/// EIP-4788 read requires interaction with an EL endpoint, and that
+/// reading is itself authenticated by the storage proof so the
+/// validator only trusts its own EL endpoint as far as state-root
+/// availability.
+///
+/// Optional on `IndexedBlockSubmissionTx` — chain-tip submissions can
+/// continue to omit it and rely on the existing Helios path.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HistoricalHeaderProof {
+    /// EL block number at which the indexer read EIP-4788 storage to
+    /// obtain `anchor_beacon_root`. Must be recent enough that the
+    /// validator's own EL endpoint can return its state root.
+    pub anchor_el_block: u64,
+    /// Beacon block root of the slot at `anchor_el_block` (the value
+    /// stored in EIP-4788 contract storage at that EL block).
+    pub anchor_beacon_root: [u8; 32],
+    /// EIP-1186-format storage proof anchoring `anchor_beacon_root` to
+    /// the EL state at `anchor_el_block`. Bincode-serialized to keep
+    /// `willow-types` light; consensus deserializes via willow-network.
+    pub anchor_eip4788_proof: Vec<u8>,
+    /// Slot of the historical block being authenticated. Drives
+    /// fork-version dispatch on the verifier side (Capella vs Deneb vs
+    /// Electra change SSZ generalized indices for the chain below).
+    pub past_beacon_slot: u64,
+    /// Beacon block root for `past_beacon_slot`. Intermediate value;
+    /// the verifier reproduces it from `state_to_block_root_branch` and
+    /// confirms `block_to_receipts_root_branch` resolves under it.
+    pub past_beacon_block_root: [u8; 32],
+    /// SSZ Merkle branch from the recent beacon state root
+    /// (derived from `anchor_beacon_root`'s state_root field) all the
+    /// way through `historical_summaries[i].block_summary_root[k]`
+    /// down to `past_beacon_block_root`. Decoded shape: bincode of
+    /// `Vec<[u8; 32]>` carrying every sibling hash along the path,
+    /// in leaf-to-root order. Verifier reconstructs the path indices
+    /// from `past_beacon_slot` plus the active fork's generalized
+    /// indices.
+    pub state_to_block_root_branch: Vec<u8>,
+    /// SSZ Merkle branch from `past_beacon_block_root` down to the
+    /// `execution_payload.receipts_root` field of the historical
+    /// beacon block. Same encoding as above. Verifier confirms
+    /// the resolved value equals `BlockHeaderCommitment.receipts_root`.
+    pub block_to_receipts_root_branch: Vec<u8>,
+}
+
 /// Subgrove configuration data used for hash computation.
 ///
 /// The hash of this configuration is included in the attestation to prove
@@ -280,6 +345,16 @@ pub struct IndexedBlockSubmissionTx {
     /// When present, consensus verifies the attestation instead of re-executing.
     #[serde(default)]
     pub tee_attestation: Option<crate::tee::TeeAttestation>,
+    /// Optional cryptographic authentication of `block_header` for
+    /// historical post-Capella submissions where Helios's sync-committee
+    /// path doesn't reach. When present, the validator verifies the
+    /// EIP-4788 → beacon `historical_summaries` → execution payload
+    /// chain (see [`HistoricalHeaderProof`]) and uses the resulting
+    /// `receipts_root` to verify the inclusion proofs. When `None`,
+    /// the validator falls back to Helios for header authentication
+    /// (the existing chain-tip path).
+    #[serde(default)]
+    pub historical_header_proof: Option<HistoricalHeaderProof>,
     /// Storage cost for this data
     pub storage_cost: u128,
     /// Timestamp when update was created
