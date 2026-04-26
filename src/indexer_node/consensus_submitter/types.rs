@@ -150,9 +150,22 @@ pub struct HistoricalHeaderProof {
     /// Beacon block root of the slot at `anchor_el_block` (the value
     /// stored in EIP-4788 contract storage at that EL block).
     pub anchor_beacon_root: [u8; 32],
+    /// Beacon state root corresponding to `anchor_beacon_root`. The
+    /// validator uses this as the trusted leaf for the
+    /// state→historical_summaries chain. MVP trust model: validator
+    /// double-checks against its own beacon RPC by fetching the
+    /// header at `anchor_beacon_root` and confirming the `state_root`
+    /// field matches. Follow-up work replaces this side-band check
+    /// with `anchor_eip4788_proof` (EIP-1186 storage proof anchoring
+    /// the beacon root in EL state) so validators don't need a beacon
+    /// RPC at all.
+    pub anchor_state_root: [u8; 32],
     /// EIP-1186-format storage proof anchoring `anchor_beacon_root` to
     /// the EL state at `anchor_el_block`. Bincode-serialized to keep
     /// `willow-types` light; consensus deserializes via willow-network.
+    /// Currently unused by the MVP verifier (see `anchor_state_root`
+    /// trust model note); included so the wire format is stable when
+    /// the EIP-4788 anchor verification ships.
     pub anchor_eip4788_proof: Vec<u8>,
     /// Slot of the historical block being authenticated. Drives
     /// fork-version dispatch on the verifier side (Capella vs Deneb vs
@@ -176,6 +189,14 @@ pub struct HistoricalHeaderProof {
     /// beacon block. Same encoding as above. Verifier confirms
     /// the resolved value equals `BlockHeaderCommitment.receipts_root`.
     pub block_to_receipts_root_branch: Vec<u8>,
+    /// SSZ Merkle branch from `past_beacon_block_root` down to the
+    /// `execution_payload.transactions_root` field of the same beacon
+    /// block. Required because `verify_completeness_submission`
+    /// authenticates BOTH event-inclusion proofs (against
+    /// `receipts_root`) AND transaction-inclusion proofs (against
+    /// `transactions_root`); the historical path has to deliver
+    /// trusted values for both.
+    pub block_to_transactions_root_branch: Vec<u8>,
 }
 
 /// Subgrove configuration data used for hash computation.
