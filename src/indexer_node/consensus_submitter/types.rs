@@ -110,6 +110,13 @@ pub struct BlockHeaderCommitment {
     pub parent_hash: [u8; 32],
     pub state_root: [u8; 32],
     pub receipts_root: [u8; 32],
+    /// Root of the block's transactions trie (RLP-encoded transactions).
+    /// Authenticated by Helios at chain tip and by
+    /// `HistoricalHeaderProof` for post-Capella historical sync; the
+    /// validator's MPT tx-inclusion verifier checks every
+    /// `transaction_proof` against this root.
+    #[serde(default)]
+    pub transactions_root: [u8; 32],
     pub timestamp: u64,
 }
 
