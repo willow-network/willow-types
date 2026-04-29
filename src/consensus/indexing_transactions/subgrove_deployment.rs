@@ -69,7 +69,36 @@ pub enum SubgroveMode {
         /// compatible with existing registrations).
         #[serde(default)]
         completeness: Option<CompletenessCommitments>,
+        /// Trust model for historical (pre-Capella) Ethereum block
+        /// authentication. Defaults to `BftEquivalent`; opt into
+        /// `CanonizedAccumulator` to index pre-April-2023 blocks.
+        /// See `docs/research/portal-network-integration.md`.
+        #[serde(default)]
+        historical_auth_mode: HistoricalAuthMode,
     },
+}
+
+/// Trust model under which historical (pre-Capella) Ethereum block
+/// authentication is acceptable for this subgrove. Pre-Capella headers
+/// cannot be authenticated solely by a current beacon sync-committee
+/// signature, so subgroves that need to index that range must
+/// explicitly opt into a weaker trust assumption: the canonized
+/// pre-merge / `historical_roots` accumulators shipped with Willow.
+/// Default is `BftEquivalent` — preserves the protocol's strong trust
+/// guarantee for any subgrove that doesn't need pre-Capella history.
+/// See `docs/research/portal-network-integration.md`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum HistoricalAuthMode {
+    /// Only accept block authentications that chain to a current beacon
+    /// sync-committee signature (Helios). Pre-Capella blocks cannot be
+    /// authenticated under this mode.
+    #[default]
+    BftEquivalent,
+    /// Accept block authentications via Willow's embedded canonized
+    /// pre-merge and `historical_roots` accumulators in addition to
+    /// Helios. Required to index any block before Capella
+    /// (block 17,034,870, ~April 2023).
+    CanonizedAccumulator,
 }
 
 /// Commitments to a subgrove's filter definitions, used as public inputs to
