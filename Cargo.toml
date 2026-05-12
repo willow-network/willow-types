@@ -18,6 +18,9 @@ thiserror = "1.0"
 sha2 = "0.10"
 hex = "0.4"
 base64 = "0.22"
+# Base58 codec for Solana pubkeys / program ids. Pure-Rust, no transitive
+# deps; used only by `consensus::manifest::SolanaPubkey`.
+bs58 = "0.5"
 chrono = { version = "0.4", features = ["serde"] }
 ciborium = "0.2"
 

@@ -2,7 +2,7 @@ use serde::de::{self, Deserializer, Visitor};
 use serde::{Deserialize, Serialize, Serializer};
 use std::fmt;
 
-use super::chains::SupportedChain;
+use super::chains::{ChainFamily, SupportedChain};
 
 /// Current manifest schema version. The consensus validator rejects any
 /// `RegisterSubgrove` whose manifest declares a different version, so a
@@ -42,17 +42,32 @@ pub struct WillowManifest {
     pub data_sources: Vec<DataSource>,
 }
 
-/// One indexed contract within a manifest. Each data source pins exactly
-/// one chain, contract address, ABI, start block, and event set; manifests
-/// that need to index multiple chains or multiple contracts have one
-/// `DataSource` per (chain, contract) pair.
+/// A single data source within a manifest, dispatched by chain family.
+///
+/// The wire form has **no extra discriminator field**: a `DataSource`
+/// deserializes from the same flat object the indexer ecosystem has used
+/// since v1, with dispatch driven by the `network` field's `ChainFamily`.
+/// EVM networks parse as [`EvmDataSource`]; Solana clusters parse as
+/// [`SolanaDataSource`]. This keeps every manifest deployed before Solana
+/// support landed parsing unchanged.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DataSource {
+    Evm(EvmDataSource),
+    Solana(SolanaDataSource),
+}
+
+/// One indexed EVM contract within a manifest. Each data source pins
+/// exactly one chain, contract address, ABI, start block, and event set;
+/// manifests that need to index multiple chains or multiple contracts
+/// have one entry per (chain, contract) pair.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case")]
-pub struct DataSource {
+pub struct EvmDataSource {
     /// Human-readable label (e.g. "UniswapV3Pool"). Used for log lines and
     /// SDK ergonomics; not load-bearing for indexing.
     pub name: String,
-    /// The chain this data source targets. Must be in `SupportedChain`.
+    /// The chain this data source targets. Must be an EVM-family chain
+    /// (cross-checked in `validate()`).
     pub network: SupportedChain,
     /// Contract address on `network`.
     pub address: EvmAddress,
@@ -64,6 +79,35 @@ pub struct DataSource {
     pub start_block: u64,
     /// Solidity event signatures to subscribe to. Must be non-empty.
     pub events: Vec<EventSignature>,
+}
+
+/// One indexed Solana program within a manifest. Each data source pins
+/// exactly one cluster, program id, start slot, and instruction filter
+/// set. Manifests targeting multiple programs use one entry per
+/// (cluster, program) pair.
+///
+/// v1 scope: instruction filtering by 8-byte discriminator. Account-state
+/// filtering (track all accounts owned by program X with discriminator
+/// Y) is a planned schema extension and is not in v1.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "snake_case")]
+pub struct SolanaDataSource {
+    /// Human-readable label. Used for log lines and SDK ergonomics; not
+    /// load-bearing for indexing.
+    pub name: String,
+    /// The Solana cluster this data source targets. Must be a Solana-family
+    /// chain (cross-checked in `validate()`).
+    pub network: SupportedChain,
+    /// Program id (32-byte Ed25519 pubkey) on `network`.
+    pub program_id: SolanaPubkey,
+    /// Slot at which to start indexing this data source. Solana's analogue
+    /// of an EVM start block.
+    pub start_slot: u64,
+    /// Instruction discriminators to subscribe to. For Anchor programs
+    /// these are `sha256("global:" + method_name)[..8]`; for non-Anchor
+    /// programs callers pass the raw first-byte tag right-padded with
+    /// zeros. Must be non-empty.
+    pub instructions: Vec<InstructionDiscriminator>,
 }
 
 /// A 20-byte EVM address, deserialized from the canonical `0x`-prefixed
@@ -145,6 +189,65 @@ impl<'de> Deserialize<'de> for EvmAddress {
             }
         }
         deserializer.deserialize_str(AddrVisitor)
+    }
+}
+
+/// A 32-byte Solana program id / account pubkey. Stored as raw bytes;
+/// the serialized form is the canonical base58 string Solana RPC and
+/// explorers use (e.g. `TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA`).
+/// Round-trip is exact — any input that successfully parses re-encodes
+/// to the same string.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SolanaPubkey(pub [u8; 32]);
+
+impl SolanaPubkey {
+    pub fn parse(s: &str) -> Result<Self, String> {
+        // bs58 emits a fresh Vec; we copy into a fixed-size array so the
+        // bound is enforced statically and downstream code can rely on it.
+        let bytes = bs58::decode(s)
+            .into_vec()
+            .map_err(|e| format!("invalid base58 pubkey {:?}: {}", s, e))?;
+        if bytes.len() != 32 {
+            return Err(format!(
+                "Solana pubkey must decode to 32 bytes (got {})",
+                bytes.len()
+            ));
+        }
+        let mut out = [0u8; 32];
+        out.copy_from_slice(&bytes);
+        Ok(SolanaPubkey(out))
+    }
+
+    pub fn to_canonical_string(&self) -> String {
+        bs58::encode(self.0).into_string()
+    }
+}
+
+impl fmt::Display for SolanaPubkey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.to_canonical_string())
+    }
+}
+
+impl Serialize for SolanaPubkey {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_canonical_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for SolanaPubkey {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct PubkeyVisitor;
+        impl Visitor<'_> for PubkeyVisitor {
+            type Value = SolanaPubkey;
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a base58-encoded 32-byte Solana pubkey")
+            }
+            fn visit_str<E: de::Error>(self, v: &str) -> Result<SolanaPubkey, E> {
+                SolanaPubkey::parse(v).map_err(de::Error::custom)
+            }
+        }
+        deserializer.deserialize_str(PubkeyVisitor)
     }
 }
 
@@ -238,6 +341,74 @@ impl<'de> Deserialize<'de> for EventSignature {
     }
 }
 
+/// An 8-byte Solana instruction discriminator, deserialized from the
+/// canonical `0x`-prefixed 16-hex-character string. Stored as raw bytes
+/// so the serialized form is normalized (lowercase hex, exact length) on
+/// every round-trip. For Anchor programs the bytes are
+/// `sha256("global:" + method_name)[..8]`; for non-Anchor programs they
+/// are the raw first-byte tag right-padded with zeros.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct InstructionDiscriminator(pub [u8; 8]);
+
+impl InstructionDiscriminator {
+    pub fn parse(s: &str) -> Result<Self, String> {
+        let stripped = s
+            .strip_prefix("0x")
+            .ok_or_else(|| format!("instruction discriminator must start with 0x: {:?}", s))?;
+        if stripped.len() != 16 {
+            return Err(format!(
+                "instruction discriminator must be 0x + 16 hex chars (got {} hex chars)",
+                stripped.len()
+            ));
+        }
+        let mut bytes = [0u8; 8];
+        for (i, byte) in bytes.iter_mut().enumerate() {
+            let hi = hex_nibble(stripped.as_bytes()[i * 2])?;
+            let lo = hex_nibble(stripped.as_bytes()[i * 2 + 1])?;
+            *byte = (hi << 4) | lo;
+        }
+        Ok(InstructionDiscriminator(bytes))
+    }
+
+    pub fn to_canonical_string(&self) -> String {
+        let mut s = String::with_capacity(18);
+        s.push_str("0x");
+        for byte in &self.0 {
+            s.push(nibble_hex(byte >> 4));
+            s.push(nibble_hex(byte & 0x0f));
+        }
+        s
+    }
+}
+
+impl fmt::Display for InstructionDiscriminator {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.to_canonical_string())
+    }
+}
+
+impl Serialize for InstructionDiscriminator {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_canonical_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for InstructionDiscriminator {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct DiscVisitor;
+        impl Visitor<'_> for DiscVisitor {
+            type Value = InstructionDiscriminator;
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a 0x-prefixed 16-hex-character instruction discriminator")
+            }
+            fn visit_str<E: de::Error>(self, v: &str) -> Result<InstructionDiscriminator, E> {
+                InstructionDiscriminator::parse(v).map_err(de::Error::custom)
+            }
+        }
+        deserializer.deserialize_str(DiscVisitor)
+    }
+}
+
 impl WillowManifest {
     /// Decode and validate a manifest from on-chain bytes. Combines the
     /// strict-shape `serde_json` step (which rejects unknown fields,
@@ -289,6 +460,89 @@ impl WillowManifest {
 }
 
 impl DataSource {
+    /// Validate the data source, dispatching to the family-specific
+    /// checks and cross-checking that the `network` field's family
+    /// matches the variant. The dispatch invariant means a manifest
+    /// can't smuggle EVM fields into a Solana data source (or vice
+    /// versa) by lying about `network`: custom `Deserialize` picks the
+    /// variant from the family, so any mismatch here is a programmer
+    /// error rather than user input.
+    pub fn validate(&self) -> Result<(), String> {
+        match self {
+            DataSource::Evm(d) => {
+                if d.network.family() != ChainFamily::Evm {
+                    return Err(format!(
+                        "evm data source on non-evm network {:?}",
+                        d.network.canonical_id()
+                    ));
+                }
+                d.validate()
+            }
+            DataSource::Solana(d) => {
+                if d.network.family() != ChainFamily::Solana {
+                    return Err(format!(
+                        "solana data source on non-solana network {:?}",
+                        d.network.canonical_id()
+                    ));
+                }
+                d.validate()
+            }
+        }
+    }
+
+    /// Human-readable label, available without matching on the variant.
+    pub fn name(&self) -> &str {
+        match self {
+            DataSource::Evm(d) => &d.name,
+            DataSource::Solana(d) => &d.name,
+        }
+    }
+
+    /// The chain this data source targets, available without matching.
+    pub fn network(&self) -> SupportedChain {
+        match self {
+            DataSource::Evm(d) => d.network,
+            DataSource::Solana(d) => d.network,
+        }
+    }
+}
+
+impl Serialize for DataSource {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        // Wire form has no discriminator wrapper — the `network` field
+        // already carries the dispatch information. Delegate straight to
+        // the inner struct so existing manifests serialize unchanged.
+        match self {
+            DataSource::Evm(d) => d.serialize(serializer),
+            DataSource::Solana(d) => d.serialize(serializer),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for DataSource {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // Peek at the `network` field via a JSON Value buffer, then
+        // dispatch by `ChainFamily`. JSON-only — willow-types serializes
+        // manifests as JSON throughout, so this is sufficient and keeps
+        // the wire form identical to a directly-derived struct.
+        #[derive(Deserialize)]
+        struct NetworkHint {
+            network: SupportedChain,
+        }
+        let value = serde_json::Value::deserialize(deserializer)?;
+        let hint: NetworkHint = serde_json::from_value(value.clone()).map_err(de::Error::custom)?;
+        match hint.network.family() {
+            ChainFamily::Evm => serde_json::from_value::<EvmDataSource>(value)
+                .map(DataSource::Evm)
+                .map_err(de::Error::custom),
+            ChainFamily::Solana => serde_json::from_value::<SolanaDataSource>(value)
+                .map(DataSource::Solana)
+                .map_err(de::Error::custom),
+        }
+    }
+}
+
+impl EvmDataSource {
     pub fn validate(&self) -> Result<(), String> {
         if self.name.is_empty() {
             return Err("data source name must not be empty".into());
@@ -334,6 +588,42 @@ impl DataSource {
     }
 }
 
+impl SolanaDataSource {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.name.is_empty() {
+            return Err("data source name must not be empty".into());
+        }
+        if self.name.len() > MAX_NAME_LEN {
+            return Err(format!(
+                "data source name length {} exceeds maximum {}",
+                self.name.len(),
+                MAX_NAME_LEN,
+            ));
+        }
+        if !self
+            .name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+        {
+            return Err(format!(
+                "data source name {:?} must be alphanumeric, '-', or '_'",
+                self.name
+            ));
+        }
+        if self.instructions.is_empty() {
+            return Err("data source must subscribe to at least one instruction".into());
+        }
+        if self.instructions.len() > MAX_EVENTS_PER_SOURCE {
+            return Err(format!(
+                "data source has {} instructions (maximum {})",
+                self.instructions.len(),
+                MAX_EVENTS_PER_SOURCE,
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -360,9 +650,12 @@ mod tests {
         assert_eq!(manifest.spec_version, MANIFEST_SPEC_VERSION);
         assert_eq!(manifest.data_sources.len(), 1);
         let ds = &manifest.data_sources[0];
-        assert_eq!(ds.network, SupportedChain::Mainnet);
+        assert_eq!(ds.network(), SupportedChain::Mainnet);
+        let DataSource::Evm(evm) = ds else {
+            panic!("expected EVM data source");
+        };
         assert_eq!(
-            ds.address.to_canonical_string(),
+            evm.address.to_canonical_string(),
             "0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640"
         );
 
@@ -507,21 +800,35 @@ mod tests {
     #[test]
     fn accepts_every_canonical_chain() {
         for chain in SupportedChain::ALL {
-            let json = format!(
-                r#"{{
-                    "spec_version": "1.0.0",
-                    "data_sources": [{{
-                        "name": "T", "network": "{}",
-                        "address": "0x0000000000000000000000000000000000000000",
-                        "abi": "ERC20", "start_block": 0,
-                        "events": ["Transfer(address,address,uint256)"]
-                    }}]
-                }}"#,
-                chain.canonical_id()
-            );
+            let json = match chain.family() {
+                ChainFamily::Evm => format!(
+                    r#"{{
+                        "spec_version": "1.0.0",
+                        "data_sources": [{{
+                            "name": "T", "network": "{}",
+                            "address": "0x0000000000000000000000000000000000000000",
+                            "abi": "ERC20", "start_block": 0,
+                            "events": ["Transfer(address,address,uint256)"]
+                        }}]
+                    }}"#,
+                    chain.canonical_id()
+                ),
+                ChainFamily::Solana => format!(
+                    r#"{{
+                        "spec_version": "1.0.0",
+                        "data_sources": [{{
+                            "name": "T", "network": "{}",
+                            "program_id": "11111111111111111111111111111111",
+                            "start_slot": 0,
+                            "instructions": ["0x0000000000000000"]
+                        }}]
+                    }}"#,
+                    chain.canonical_id()
+                ),
+            };
             let manifest = WillowManifest::from_bytes(json.as_bytes())
                 .unwrap_or_else(|e| panic!("{}: {}", chain, e));
-            assert_eq!(manifest.data_sources[0].network, *chain);
+            assert_eq!(manifest.data_sources[0].network(), *chain);
         }
     }
 
@@ -557,5 +864,222 @@ mod tests {
         }"#;
         let err = WillowManifest::from_bytes(bad_name).unwrap_err();
         assert!(err.contains("alphanumeric"), "{err}");
+    }
+
+    fn good_solana_manifest_json() -> &'static [u8] {
+        br#"{
+            "spec_version": "1.0.0",
+            "data_sources": [
+                {
+                    "name": "SplToken",
+                    "network": "solana-mainnet",
+                    "program_id": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+                    "start_slot": 200000000,
+                    "instructions": ["0x0300000000000000"]
+                }
+            ]
+        }"#
+    }
+
+    #[test]
+    fn round_trip_solana() {
+        let manifest = WillowManifest::from_bytes(good_solana_manifest_json()).unwrap();
+        assert_eq!(manifest.data_sources.len(), 1);
+        let ds = &manifest.data_sources[0];
+        assert_eq!(ds.network(), SupportedChain::SolanaMainnet);
+        let DataSource::Solana(sol) = ds else {
+            panic!("expected Solana data source");
+        };
+        assert_eq!(
+            sol.program_id.to_canonical_string(),
+            "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        );
+        assert_eq!(sol.start_slot, 200_000_000);
+        assert_eq!(sol.instructions.len(), 1);
+        assert_eq!(
+            sol.instructions[0].to_canonical_string(),
+            "0x0300000000000000"
+        );
+
+        let bytes = serde_json::to_vec(&manifest).unwrap();
+        let again = WillowManifest::from_bytes(&bytes).unwrap();
+        assert_eq!(manifest, again);
+    }
+
+    #[test]
+    fn round_trip_mixed_evm_and_solana() {
+        let json = br#"{
+            "spec_version": "1.0.0",
+            "data_sources": [
+                {
+                    "name": "Pool",
+                    "network": "mainnet",
+                    "address": "0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640",
+                    "abi": "UniswapV3Pool",
+                    "start_block": 12369621,
+                    "events": ["Swap(address,address,int256,int256,uint160,uint128,int24)"]
+                },
+                {
+                    "name": "Token",
+                    "network": "solana-mainnet",
+                    "program_id": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+                    "start_slot": 200000000,
+                    "instructions": ["0x0300000000000000"]
+                }
+            ]
+        }"#;
+        let manifest = WillowManifest::from_bytes(json).unwrap();
+        assert_eq!(manifest.data_sources.len(), 2);
+        assert!(matches!(manifest.data_sources[0], DataSource::Evm(_)));
+        assert!(matches!(manifest.data_sources[1], DataSource::Solana(_)));
+
+        let bytes = serde_json::to_vec(&manifest).unwrap();
+        let again = WillowManifest::from_bytes(&bytes).unwrap();
+        assert_eq!(manifest, again);
+    }
+
+    #[test]
+    fn rejects_evm_fields_on_solana_network() {
+        let json = br#"{
+            "spec_version": "1.0.0",
+            "data_sources": [{
+                "name": "T",
+                "network": "solana-mainnet",
+                "address": "0x0000000000000000000000000000000000000000",
+                "program_id": "11111111111111111111111111111111",
+                "start_slot": 0,
+                "instructions": ["0x0000000000000000"]
+            }]
+        }"#;
+        let err = WillowManifest::from_bytes(json).unwrap_err();
+        assert!(
+            err.contains("address") || err.contains("unknown field"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn rejects_solana_fields_on_evm_network() {
+        let json = br#"{
+            "spec_version": "1.0.0",
+            "data_sources": [{
+                "name": "T",
+                "network": "mainnet",
+                "address": "0x0000000000000000000000000000000000000000",
+                "abi": "ERC20", "start_block": 0,
+                "events": ["Transfer(address,address,uint256)"],
+                "program_id": "11111111111111111111111111111111"
+            }]
+        }"#;
+        let err = WillowManifest::from_bytes(json).unwrap_err();
+        assert!(
+            err.contains("program_id") || err.contains("unknown field"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn rejects_bad_base58_pubkey() {
+        let json = br#"{
+            "spec_version": "1.0.0",
+            "data_sources": [{
+                "name": "T", "network": "solana-mainnet",
+                "program_id": "not-base58-because-zero-O-I-l-are-illegal-0OIl",
+                "start_slot": 0,
+                "instructions": ["0x0000000000000000"]
+            }]
+        }"#;
+        assert!(WillowManifest::from_bytes(json).is_err());
+    }
+
+    #[test]
+    fn rejects_short_pubkey() {
+        let json = br#"{
+            "spec_version": "1.0.0",
+            "data_sources": [{
+                "name": "T", "network": "solana-mainnet",
+                "program_id": "abc",
+                "start_slot": 0,
+                "instructions": ["0x0000000000000000"]
+            }]
+        }"#;
+        let err = WillowManifest::from_bytes(json).unwrap_err();
+        assert!(err.contains("32 bytes") || err.contains("decode"), "{err}");
+    }
+
+    #[test]
+    fn rejects_short_discriminator() {
+        let json = br#"{
+            "spec_version": "1.0.0",
+            "data_sources": [{
+                "name": "T", "network": "solana-mainnet",
+                "program_id": "11111111111111111111111111111111",
+                "start_slot": 0,
+                "instructions": ["0xabc"]
+            }]
+        }"#;
+        let err = WillowManifest::from_bytes(json).unwrap_err();
+        assert!(err.contains("16 hex chars"), "{err}");
+    }
+
+    #[test]
+    fn rejects_discriminator_without_0x() {
+        let json = br#"{
+            "spec_version": "1.0.0",
+            "data_sources": [{
+                "name": "T", "network": "solana-mainnet",
+                "program_id": "11111111111111111111111111111111",
+                "start_slot": 0,
+                "instructions": ["abcdef0123456789"]
+            }]
+        }"#;
+        let err = WillowManifest::from_bytes(json).unwrap_err();
+        assert!(err.contains("0x"), "{err}");
+    }
+
+    #[test]
+    fn rejects_empty_instructions() {
+        let json = br#"{
+            "spec_version": "1.0.0",
+            "data_sources": [{
+                "name": "T", "network": "solana-mainnet",
+                "program_id": "11111111111111111111111111111111",
+                "start_slot": 0,
+                "instructions": []
+            }]
+        }"#;
+        let err = WillowManifest::from_bytes(json).unwrap_err();
+        assert!(err.contains("at least one instruction"), "{err}");
+    }
+
+    #[test]
+    fn solana_pubkey_round_trip() {
+        let s = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+        let pubkey = SolanaPubkey::parse(s).unwrap();
+        assert_eq!(pubkey.to_canonical_string(), s);
+    }
+
+    #[test]
+    fn solana_pubkey_system_program_is_all_zeros() {
+        // The Solana System Program is the canonical all-zeros pubkey,
+        // which in base58 is exactly 32 '1' characters.
+        let pubkey = SolanaPubkey::parse("11111111111111111111111111111111").unwrap();
+        assert_eq!(pubkey.0, [0u8; 32]);
+        assert_eq!(
+            pubkey.to_canonical_string(),
+            "11111111111111111111111111111111"
+        );
+    }
+
+    #[test]
+    fn instruction_discriminator_round_trip() {
+        let disc = InstructionDiscriminator::parse("0xabcdef0123456789").unwrap();
+        assert_eq!(disc.to_canonical_string(), "0xabcdef0123456789");
+    }
+
+    #[test]
+    fn instruction_discriminator_uppercase_normalises_to_lower() {
+        let disc = InstructionDiscriminator::parse("0xABCDEF0123456789").unwrap();
+        assert_eq!(disc.to_canonical_string(), "0xabcdef0123456789");
     }
 }
