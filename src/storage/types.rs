@@ -109,6 +109,17 @@ pub struct SubgroveRegistration {
     pub updated_at: u64,
 }
 
+/// Upper bounds enforced by the consensus validator on
+/// `TemplateSubgroveConfig` fields. Same rationale as the
+/// `MAX_SUBGROVE_*` constants alongside `RegisterSubgroveTx`: keep
+/// per-subgrove state bounded and the per-tx validation work cheap.
+pub const MAX_TEMPLATE_ID_LEN: usize = 64;
+pub const MAX_VARIANT_ID_LEN: usize = 64;
+pub const MAX_TEMPLATE_PARAMETERS_BYTES: usize = 65_536;
+pub const MAX_TEMPLATE_CONTRACTS: usize = 64;
+pub const MAX_TEMPLATE_EVENT_SIGNATURES: usize = 64;
+pub const MAX_TEMPLATE_CHAIN_LEN: usize = 32;
+
 /// Configuration for template-based subgroves that use GKR proofs.
 ///
 /// When a subgrove is registered with a template, this configuration
@@ -134,6 +145,252 @@ pub struct TemplateSubgroveConfig {
     pub event_signatures: Vec<String>,
     /// Optional blockchain chain identifier (e.g., "ethereum", "polygon").
     pub chain: Option<String>,
+}
+
+impl TemplateSubgroveConfig {
+    /// Validate length / count / charset bounds on every field.
+    ///
+    /// The consensus validator calls this for every `RegisterSubgrove`
+    /// whose `template_config` is `Some(...)`; in-flight registrations
+    /// with malformed bounds are rejected at the mempool boundary.
+    pub fn validate(&self) -> Result<(), String> {
+        validate_id(&self.template_id, "template_id", MAX_TEMPLATE_ID_LEN)?;
+        validate_id(&self.variant_id, "variant_id", MAX_VARIANT_ID_LEN)?;
+
+        if self.parameters.len() > MAX_TEMPLATE_PARAMETERS_BYTES {
+            return Err(format!(
+                "template_config.parameters size {} exceeds maximum {}",
+                self.parameters.len(),
+                MAX_TEMPLATE_PARAMETERS_BYTES
+            ));
+        }
+
+        if self.contracts.len() > MAX_TEMPLATE_CONTRACTS {
+            return Err(format!(
+                "template_config.contracts has {} entries (maximum {})",
+                self.contracts.len(),
+                MAX_TEMPLATE_CONTRACTS
+            ));
+        }
+        for (idx, addr) in self.contracts.iter().enumerate() {
+            if !is_hex_with_prefix(addr, 40) {
+                return Err(format!(
+                    "template_config.contracts[{}] {:?} is not a 0x-prefixed 40-hex-char address",
+                    idx, addr
+                ));
+            }
+        }
+
+        if self.event_signatures.len() > MAX_TEMPLATE_EVENT_SIGNATURES {
+            return Err(format!(
+                "template_config.event_signatures has {} entries (maximum {})",
+                self.event_signatures.len(),
+                MAX_TEMPLATE_EVENT_SIGNATURES
+            ));
+        }
+        for (idx, sig) in self.event_signatures.iter().enumerate() {
+            if !is_hex_with_prefix(sig, 64) {
+                return Err(format!(
+                    "template_config.event_signatures[{}] {:?} is not a 0x-prefixed 64-hex-char digest",
+                    idx, sig
+                ));
+            }
+        }
+
+        if let Some(chain) = &self.chain {
+            if chain.is_empty() {
+                return Err("template_config.chain must not be empty when set".to_string());
+            }
+            if chain.len() > MAX_TEMPLATE_CHAIN_LEN {
+                return Err(format!(
+                    "template_config.chain length {} exceeds maximum {}",
+                    chain.len(),
+                    MAX_TEMPLATE_CHAIN_LEN
+                ));
+            }
+        }
+
+        Ok(())
+    }
+}
+
+fn validate_id(value: &str, field: &str, max_len: usize) -> Result<(), String> {
+    if value.is_empty() {
+        return Err(format!("template_config.{} must not be empty", field));
+    }
+    if value.len() > max_len {
+        return Err(format!(
+            "template_config.{} length {} exceeds maximum {}",
+            field,
+            value.len(),
+            max_len
+        ));
+    }
+    if !value
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    {
+        return Err(format!(
+            "template_config.{} {:?} must be ASCII alphanumeric, '-', or '_'",
+            field, value
+        ));
+    }
+    Ok(())
+}
+
+fn is_hex_with_prefix(s: &str, hex_len: usize) -> bool {
+    s.strip_prefix("0x")
+        .map(|rest| rest.len() == hex_len && rest.bytes().all(|b| b.is_ascii_hexdigit()))
+        .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod template_subgrove_config_tests {
+    use super::*;
+
+    fn good_config() -> TemplateSubgroveConfig {
+        TemplateSubgroveConfig {
+            template_id: "balance-aggregator-v2".to_string(),
+            template_version: 1,
+            variant_id: "balance-aggregator-v2-fixed64".to_string(),
+            parameters: b"{}".to_vec(),
+            contracts: vec!["0x7159cc276d7d17ab4b3beb19959e1f39368a45ba".to_string()],
+            event_signatures: vec![
+                "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef".to_string(),
+            ],
+            chain: Some("ethereum".to_string()),
+        }
+    }
+
+    #[test]
+    fn known_good_passes() {
+        good_config().validate().unwrap();
+    }
+
+    #[test]
+    fn rejects_empty_template_id() {
+        let mut c = good_config();
+        c.template_id = String::new();
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_empty_variant_id() {
+        let mut c = good_config();
+        c.variant_id = String::new();
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_template_id_with_invalid_chars() {
+        let mut c = good_config();
+        c.template_id = "has space".to_string();
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_template_id_too_long() {
+        let mut c = good_config();
+        c.template_id = "a".repeat(MAX_TEMPLATE_ID_LEN + 1);
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_parameters_too_large() {
+        let mut c = good_config();
+        c.parameters = vec![0u8; MAX_TEMPLATE_PARAMETERS_BYTES + 1];
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_too_many_contracts() {
+        let mut c = good_config();
+        c.contracts = (0..MAX_TEMPLATE_CONTRACTS + 1)
+            .map(|_| "0x0000000000000000000000000000000000000000".to_string())
+            .collect();
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_malformed_contract_address() {
+        for bad in [
+            "0x123",                                       // too short
+            "not-an-address",                              // no prefix
+            "0xZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",  // non-hex
+            "0x00000000000000000000000000000000000000000", // 41 hex chars
+        ] {
+            let mut c = good_config();
+            c.contracts = vec![bad.to_string()];
+            assert!(c.validate().is_err(), "should reject contract {:?}", bad);
+        }
+    }
+
+    #[test]
+    fn rejects_too_many_event_signatures() {
+        let mut c = good_config();
+        c.event_signatures = (0..MAX_TEMPLATE_EVENT_SIGNATURES + 1)
+            .map(|_| {
+                "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef".to_string()
+            })
+            .collect();
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_malformed_event_signature() {
+        for bad in [
+            "0xddf252ad", // 8 hex chars, not 64
+            "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef", // no 0x prefix
+            "Transfer(address,address,uint256)", // human-readable, not keccak digest
+        ] {
+            let mut c = good_config();
+            c.event_signatures = vec![bad.to_string()];
+            assert!(
+                c.validate().is_err(),
+                "should reject event signature {:?}",
+                bad
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_empty_chain_when_set() {
+        let mut c = good_config();
+        c.chain = Some(String::new());
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_chain_too_long() {
+        let mut c = good_config();
+        c.chain = Some("x".repeat(MAX_TEMPLATE_CHAIN_LEN + 1));
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn accepts_no_chain() {
+        let mut c = good_config();
+        c.chain = None;
+        c.validate().unwrap();
+    }
+
+    #[test]
+    fn accepts_values_at_caps() {
+        let mut c = good_config();
+        c.template_id = "a".repeat(MAX_TEMPLATE_ID_LEN);
+        c.variant_id = "a".repeat(MAX_VARIANT_ID_LEN);
+        c.parameters = vec![0u8; MAX_TEMPLATE_PARAMETERS_BYTES];
+        c.contracts = (0..MAX_TEMPLATE_CONTRACTS)
+            .map(|_| "0x0000000000000000000000000000000000000000".to_string())
+            .collect();
+        c.event_signatures = (0..MAX_TEMPLATE_EVENT_SIGNATURES)
+            .map(|_| {
+                "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef".to_string()
+            })
+            .collect();
+        c.chain = Some("x".repeat(MAX_TEMPLATE_CHAIN_LEN));
+        c.validate().unwrap();
+    }
 }
 
 /// Phase of indexing for a subgrove.
