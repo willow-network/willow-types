@@ -137,6 +137,7 @@ pub struct CollectQueryFeesTx {
     /// Number of queries served in this period.
     pub query_count: u64,
     /// Total fees earned in WILL tokens.
+    #[serde(with = "crate::serde_helpers::u128_flexible")]
     pub total_fees: u128,
     /// Cryptographic signature from the indexer.
     pub signature: Vec<u8>,
@@ -182,6 +183,7 @@ pub struct SlashIndexerTx {
     pub proposer_did: String,
     /// Bond amount posted by the proposer (must be >= SLASH_PROPOSAL_BOND).
     /// Forfeited to the accused indexer if evidence is invalid.
+    #[serde(with = "crate::serde_helpers::u128_flexible")]
     pub bond_amount: u128,
     /// Cryptographic signature from the proposer.
     pub signature: Vec<u8>,
@@ -252,4 +254,50 @@ pub enum SlashingEvidence {
         /// Description of the evidence format.
         format_description: String,
     },
+}
+
+#[cfg(test)]
+mod bincode_tests {
+    //! Per-file regression guard for the `u128_flexible` helper attached to
+    //! tx u128 fields in this module. Consensus deserializes `Transaction`
+    //! via `bincode::deserialize`, so any helper attached to a tx field
+    //! must round-trip through bincode unchanged.
+    use super::*;
+
+    #[test]
+    fn slash_indexer_tx_bincode_round_trip() {
+        let tx = SlashIndexerTx {
+            indexer_did: "did:willow:indexer1".to_string(),
+            subgrove_id: "sg-1".to_string(),
+            violation_type: SlashingViolation::Unavailability,
+            reason: "missed availability proofs".to_string(),
+            evidence: SlashingEvidence::Other {
+                data: vec![1, 2, 3],
+                format_description: "test".to_string(),
+            },
+            proposer_did: "did:willow:proposer1".to_string(),
+            bond_amount: 100_000_000_000_000_000_000_000,
+            signature: vec![1, 2, 3],
+            public_key_id: "did:willow:proposer1#key-1".to_string(),
+            nonce: 1,
+        };
+        let bytes = bincode::serialize(&tx).expect("bincode serialize");
+        let got: SlashIndexerTx = bincode::deserialize(&bytes).expect("bincode deserialize");
+        assert_eq!(got.bond_amount, tx.bond_amount);
+    }
+
+    #[test]
+    fn collect_query_fees_tx_bincode_round_trip() {
+        let tx = CollectQueryFeesTx {
+            indexer_did: "did:willow:indexer1".to_string(),
+            period_start: 100,
+            period_end: 200,
+            query_count: 1234,
+            total_fees: 100_000_000_000_000_000_000_000,
+            signature: vec![1, 2, 3],
+        };
+        let bytes = bincode::serialize(&tx).expect("bincode serialize");
+        let got: CollectQueryFeesTx = bincode::deserialize(&bytes).expect("bincode deserialize");
+        assert_eq!(got.total_fees, tx.total_fees);
+    }
 }

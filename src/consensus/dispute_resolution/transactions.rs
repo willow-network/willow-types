@@ -14,6 +14,7 @@ pub struct OpenBisectionDisputeTx {
     /// Challenger's intermediate hashes commitment (Merkle root over accumulated hashes).
     pub challenger_intermediate_commitment: [u8; 32],
     /// Bond amount being posted (must be >= DISPUTE_BOND).
+    #[serde(with = "crate::serde_helpers::u128_flexible")]
     pub bond_amount: u128,
     /// Reason for the dispute.
     pub reason: String,
@@ -268,6 +269,7 @@ pub struct OpenCommitmentDisputeTx {
     /// Specific key at that path to challenge.
     pub challenge_key: Vec<u8>,
     /// Bond amount being posted (must be >= COMMITMENT_DISPUTE_BOND).
+    #[serde(with = "crate::serde_helpers::u128_flexible")]
     pub bond_amount: u128,
     /// Reason for the dispute.
     pub reason: String,
@@ -277,6 +279,52 @@ pub struct OpenCommitmentDisputeTx {
     pub public_key_id: String,
     /// Replay protection nonce.
     pub nonce: u64,
+}
+
+#[cfg(test)]
+mod bincode_tests {
+    //! Per-file regression guard for the `u128_flexible` helper attached to
+    //! `bond_amount` on the dispute-opening tx structs. Consensus
+    //! deserializes `Transaction` via `bincode::deserialize`, so any helper
+    //! attached to a tx field must round-trip through bincode unchanged.
+    use super::*;
+
+    #[test]
+    fn open_bisection_dispute_tx_bincode_round_trip() {
+        let tx = OpenBisectionDisputeTx {
+            checkpoint_id: [1u8; 32],
+            challenger_did: "did:willow:challenger1".to_string(),
+            challenger_intermediate_commitment: [2u8; 32],
+            bond_amount: 100_000_000_000_000_000_000_000,
+            reason: "bad checkpoint".to_string(),
+            signature: vec![1, 2, 3],
+            public_key_id: "did:willow:challenger1#key-1".to_string(),
+            nonce: 1,
+        };
+        let bytes = bincode::serialize(&tx).expect("bincode serialize");
+        let got: OpenBisectionDisputeTx =
+            bincode::deserialize(&bytes).expect("bincode deserialize");
+        assert_eq!(got.bond_amount, tx.bond_amount);
+    }
+
+    #[test]
+    fn open_commitment_dispute_tx_bincode_round_trip() {
+        let tx = OpenCommitmentDisputeTx {
+            subgrove_id: "sg-1".to_string(),
+            challenger_did: "did:willow:challenger1".to_string(),
+            challenge_path: vec![vec![1, 2, 3]],
+            challenge_key: vec![4, 5, 6],
+            bond_amount: 100_000_000_000_000_000_000_000,
+            reason: "commitment dispute".to_string(),
+            signature: vec![1, 2, 3],
+            public_key_id: "did:willow:challenger1#key-1".to_string(),
+            nonce: 1,
+        };
+        let bytes = bincode::serialize(&tx).expect("bincode serialize");
+        let got: OpenCommitmentDisputeTx =
+            bincode::deserialize(&bytes).expect("bincode deserialize");
+        assert_eq!(got.bond_amount, tx.bond_amount);
+    }
 }
 
 /// Transaction for a provider to respond to a commitment dispute with a GroveDB proof.

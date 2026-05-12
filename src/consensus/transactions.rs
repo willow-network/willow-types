@@ -146,6 +146,7 @@ pub struct TransferTx {
     /// DID of the recipient.
     pub to_did: String,
     /// Amount of WILL tokens to transfer.
+    #[serde(with = "crate::serde_helpers::u128_flexible")]
     pub amount: u128,
     /// Optional memo/note for the transfer.
     pub memo: Option<String>,
@@ -163,6 +164,7 @@ pub struct StakeTx {
     /// DID of the validator.
     pub validator_did: String,
     /// Amount of WILL tokens to stake.
+    #[serde(with = "crate::serde_helpers::u128_flexible")]
     pub amount: u128,
     /// Public key for CometBFT consensus participation.
     pub consensus_pubkey: String,
@@ -180,6 +182,7 @@ pub struct UnstakeTx {
     /// DID of the validator unstaking.
     pub validator_did: String,
     /// Amount of WILL tokens to unstake.
+    #[serde(with = "crate::serde_helpers::u128_flexible")]
     pub amount: u128,
     /// Cryptographic signature from the validator.
     pub signature: Vec<u8>,
@@ -459,6 +462,7 @@ pub struct FundSubgroveTx {
     /// Subgrove to fund.
     pub subgrove_id: String,
     /// Amount of WILL tokens to add.
+    #[serde(with = "crate::serde_helpers::u128_flexible")]
     pub amount: u128,
     /// DID of the funder.
     pub from_did: String,
@@ -848,6 +852,7 @@ pub struct RegisterStorageNodeTx {
     /// Advertised storage capacity in bytes.
     pub capacity_bytes: u64,
     /// Amount of WILL tokens to stake.
+    #[serde(with = "crate::serde_helpers::u128_flexible")]
     pub stake_amount: u128,
     /// Cryptographic signature from the operator.
     pub signature: Vec<u8>,
@@ -976,4 +981,65 @@ pub struct RegisterErc8004AgentTx {
     pub public_key_id: String,
     /// Replay protection nonce.
     pub nonce: u64,
+}
+
+#[cfg(test)]
+mod bincode_tests {
+    //! Consensus deserializes `Transaction` via `bincode::deserialize`. The
+    //! `u128_flexible` helper attached to tx amount fields must round-trip
+    //! through bincode unchanged — covered for the helper itself in
+    //! `serde_helpers::tests` and for the registration flow in
+    //! `indexing_transactions::indexer_config::tests`. This module is the
+    //! per-file regression guard for the token / staking / file-storage
+    //! transactions in this file.
+    use super::*;
+
+    #[test]
+    fn transfer_tx_bincode_round_trip() {
+        let tx = TransferTx {
+            from_did: "did:willow:alice".to_string(),
+            to_did: "did:willow:bob".to_string(),
+            amount: 100_000_000_000_000_000_000_000,
+            memo: Some("test".to_string()),
+            signature: vec![1, 2, 3],
+            public_key_id: "did:willow:alice#key-1".to_string(),
+            nonce: 1,
+        };
+        let bytes = bincode::serialize(&tx).expect("bincode serialize");
+        let got: TransferTx = bincode::deserialize(&bytes).expect("bincode deserialize");
+        assert_eq!(got.amount, tx.amount);
+        assert_eq!(got.from_did, tx.from_did);
+        assert_eq!(got.memo, tx.memo);
+    }
+
+    #[test]
+    fn fund_subgrove_tx_bincode_round_trip() {
+        let tx = FundSubgroveTx {
+            subgrove_id: "sg-1".to_string(),
+            amount: 100_000_000_000_000_000_000_000,
+            from_did: "did:willow:alice".to_string(),
+            signature: vec![1, 2, 3],
+            public_key_id: "did:willow:alice#key-1".to_string(),
+            nonce: 1,
+        };
+        let bytes = bincode::serialize(&tx).expect("bincode serialize");
+        let got: FundSubgroveTx = bincode::deserialize(&bytes).expect("bincode deserialize");
+        assert_eq!(got.amount, tx.amount);
+    }
+
+    #[test]
+    fn register_storage_node_tx_bincode_round_trip() {
+        let tx = RegisterStorageNodeTx {
+            node_did: "did:willow:storage1".to_string(),
+            endpoint: "http://storage.example.com".to_string(),
+            capacity_bytes: 10_000_000_000,
+            stake_amount: 100_000_000_000_000_000_000_000,
+            signature: vec![1, 2, 3],
+            public_key_id: "did:willow:storage1#key-1".to_string(),
+            nonce: 1,
+        };
+        let bytes = bincode::serialize(&tx).expect("bincode serialize");
+        let got: RegisterStorageNodeTx = bincode::deserialize(&bytes).expect("bincode deserialize");
+        assert_eq!(got.stake_amount, tx.stake_amount);
+    }
 }

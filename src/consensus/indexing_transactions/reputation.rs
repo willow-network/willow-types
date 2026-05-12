@@ -119,6 +119,7 @@ pub struct RecordFundingSourceTx {
     /// Transaction hash of the funding transaction.
     pub tx_hash: String,
     /// Amount funded (in wei).
+    #[serde(with = "crate::serde_helpers::u128_flexible")]
     pub amount: u128,
     /// Cryptographic signature from the indexer.
     pub signature: Vec<u8>,
@@ -126,4 +127,29 @@ pub struct RecordFundingSourceTx {
     pub public_key_id: String,
     /// Replay protection nonce.
     pub nonce: u64,
+}
+
+#[cfg(test)]
+mod bincode_tests {
+    use super::*;
+
+    /// Consensus deserializes `Transaction` -> `RecordFundingSourceTx` via
+    /// `bincode::deserialize`. The `u128_flexible` helper attached to
+    /// `amount` must round-trip through bincode unchanged.
+    #[test]
+    fn record_funding_source_tx_bincode_round_trip() {
+        let tx = RecordFundingSourceTx {
+            indexer_did: "did:willow:indexer1".to_string(),
+            source_address: "0x0000000000000000000000000000000000000001".to_string(),
+            chain: "ethereum".to_string(),
+            tx_hash: "0xabcd".to_string(),
+            amount: 100_000_000_000_000_000_000_000,
+            signature: vec![1, 2, 3],
+            public_key_id: "did:willow:indexer1#key-1".to_string(),
+            nonce: 1,
+        };
+        let bytes = bincode::serialize(&tx).expect("bincode serialize");
+        let got: RecordFundingSourceTx = bincode::deserialize(&bytes).expect("bincode deserialize");
+        assert_eq!(got.amount, tx.amount);
+    }
 }
