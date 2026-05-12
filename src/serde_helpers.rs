@@ -22,6 +22,11 @@
 
 /// Deserialize a `u128` from either a JSON number or a JSON string.
 /// Serialize a `u128` as a JSON number (matches the default Rust behavior).
+///
+/// Bincode-safe: dispatches on `is_human_readable()` so structs that round-trip
+/// through `bincode` (e.g. `Transaction`, which consensus decodes via
+/// `bincode::deserialize`) keep working — the JSON-only `RawValue` path is
+/// only entered for human-readable formats.
 pub mod u128_flexible {
     use serde::de::Error as DeError;
     use serde::{Deserialize, Deserializer, Serializer};
@@ -34,6 +39,13 @@ pub mod u128_flexible {
     }
 
     pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u128, D::Error> {
+        if !deserializer.is_human_readable() {
+            // Binary format (bincode, postcard, …): nothing to disambiguate,
+            // and `RawValue` is JSON-only. Fall back to the native u128
+            // deserialization the format already supports.
+            return u128::deserialize(deserializer);
+        }
+
         // `RawValue` gives us the original JSON bytes for the value
         // without passing through `serde_json::Number` (which, absent
         // the `arbitrary_precision` feature, routes large integers
@@ -124,7 +136,6 @@ pub mod option_bytes_base64 {
 /// Explicit `null` (or an absent field paired with `#[serde(default)]`)
 /// deserializes as `None`; anything else defers to `u128_flexible`.
 pub mod option_u128_flexible {
-    use super::u128_flexible;
     use serde::de::Error as DeError;
     use serde::{Deserialize, Deserializer, Serializer};
     use serde_json::value::RawValue;
@@ -134,7 +145,12 @@ pub mod option_u128_flexible {
         serializer: S,
     ) -> Result<S::Ok, S::Error> {
         match value {
-            Some(v) => u128_flexible::serialize(v, serializer),
+            // `serialize_some` emits the Option discriminator before the
+            // inner value on binary formats (bincode writes a 1-byte tag),
+            // and is a no-op wrapper on JSON (writes the bare number).
+            // Calling `u128_flexible::serialize(v, serializer)` directly
+            // would skip the discriminator and corrupt the binary wire form.
+            Some(v) => serializer.serialize_some(v),
             None => serializer.serialize_none(),
         }
     }
@@ -142,6 +158,11 @@ pub mod option_u128_flexible {
     pub fn deserialize<'de, D: Deserializer<'de>>(
         deserializer: D,
     ) -> Result<Option<u128>, D::Error> {
+        if !deserializer.is_human_readable() {
+            // Binary format: native Option<u128>. `RawValue` is JSON-only.
+            return Option::<u128>::deserialize(deserializer);
+        }
+
         // Peek at the raw JSON to distinguish `null` from a number or
         // string without reifying it into `serde_json::Value` (which,
         // absent `arbitrary_precision`, would lose precision on any
@@ -273,5 +294,30 @@ mod tests {
     fn preserves_precision_for_large_json_numbers() {
         let got: Wrap = serde_json::from_str(r#"{"v": 100000000000000000000000}"#).unwrap();
         assert_eq!(got.v, 100_000_000_000_000_000_000_000);
+    }
+
+    /// Binary formats must round-trip through `u128_flexible` without
+    /// hitting the JSON-only `RawValue` path. Without this guard, wiring
+    /// the helper onto any field on a struct that consensus
+    /// bincode-deserializes (e.g. `Transaction`) would deadlock the chain
+    /// at the first such tx.
+    #[test]
+    fn bincode_round_trip() {
+        let wrap = Wrap {
+            v: 100_000_000_000_000_000_000_000,
+        };
+        let bytes = bincode::serialize(&wrap).expect("bincode serialize");
+        let got: Wrap = bincode::deserialize(&bytes).expect("bincode deserialize");
+        assert_eq!(got, wrap);
+    }
+
+    #[test]
+    fn option_bincode_round_trip() {
+        for v in [None, Some(0u128), Some(100_000_000_000_000_000_000_000u128)] {
+            let wrap = OptWrap { v };
+            let bytes = bincode::serialize(&wrap).expect("bincode serialize");
+            let got: OptWrap = bincode::deserialize(&bytes).expect("bincode deserialize");
+            assert_eq!(got, wrap);
+        }
     }
 }

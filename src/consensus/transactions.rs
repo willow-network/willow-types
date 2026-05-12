@@ -425,8 +425,9 @@ pub struct RegisterSubgroveTx {
     #[serde(default)]
     pub admins: Vec<String>,
     /// Optional initial funding amount (in smallest token unit) to atomically
-    /// fund the subgrove during registration.
-    #[serde(default)]
+    /// fund the subgrove during registration. Accepts a JSON number, a JSON
+    /// string (TS SDK), or `null` — see `crate::serde_helpers::option_u128_flexible`.
+    #[serde(default, with = "crate::serde_helpers::option_u128_flexible")]
     pub initial_funding: Option<u128>,
     /// Checkpoint verification configuration.
     /// Optionally requires TEE attestation for checkpoint submissions.

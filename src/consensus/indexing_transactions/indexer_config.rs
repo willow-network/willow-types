@@ -14,6 +14,10 @@ pub struct RegisterIndexerTx {
     /// List of subgrove IDs this indexer will process.
     pub subgroves: Vec<String>,
     /// Amount of WILL tokens to stake (minimum 100,000 WILL).
+    ///
+    /// Accepts both a JSON number (Rust SDK) and a JSON string (TS SDK)
+    /// on the wire — see `crate::serde_helpers::u128_flexible`.
+    #[serde(with = "crate::serde_helpers::u128_flexible")]
     pub stake_amount: u128,
     /// HTTP endpoint for monitoring and health checks.
     pub endpoint: String,
@@ -68,6 +72,7 @@ pub struct IndexerConfig {
     ///
     /// Accepts both a JSON number (Rust SDK) and a JSON string (TS SDK)
     /// on the wire — see `crate::serde_helpers::u128_flexible`.
+    #[serde(with = "crate::serde_helpers::u128_flexible")]
     pub reward_per_epoch: u128,
 
     /// Length of an epoch in blocks. Default: 100.
@@ -79,6 +84,7 @@ pub struct IndexerConfig {
     ///
     /// Accepts both a JSON number (Rust SDK) and a JSON string (TS SDK)
     /// on the wire — see `crate::serde_helpers::u128_flexible`.
+    #[serde(with = "crate::serde_helpers::u128_flexible")]
     pub min_indexer_stake: u128,
 }
 
@@ -397,5 +403,40 @@ mod tests {
         );
         assert_eq!(cfg.reward_per_epoch, 100_000_000_000_000_000);
         assert_eq!(cfg.min_indexer_stake, 100_000_000_000_000_000_000_000);
+    }
+
+    /// Consensus deserializes `Transaction` (and thus `IndexerConfig` inside
+    /// `RegisterSubgroveTx`) via `bincode::deserialize`. The
+    /// `u128_flexible` helper attached to the u128 fields must round-trip
+    /// through bincode unchanged — without the `is_human_readable()`
+    /// dispatch in the helper, the JSON-only `RawValue` path would error
+    /// here and break every BlockchainIndexing registration on consensus.
+    #[test]
+    fn indexer_config_bincode_round_trip() {
+        let cfg = IndexerConfig {
+            min_indexers: 2,
+            max_indexers: 5,
+            reward_per_epoch: 100_000_000_000_000_000,
+            epoch_length: 200,
+            min_indexer_stake: 100_000_000_000_000_000_000_000,
+        };
+        let bytes = bincode::serialize(&cfg).expect("bincode serialize");
+        let got: IndexerConfig = bincode::deserialize(&bytes).expect("bincode deserialize");
+        assert_eq!(got.min_indexers, cfg.min_indexers);
+        assert_eq!(got.max_indexers, cfg.max_indexers);
+        assert_eq!(got.reward_per_epoch, cfg.reward_per_epoch);
+        assert_eq!(got.epoch_length, cfg.epoch_length);
+        assert_eq!(got.min_indexer_stake, cfg.min_indexer_stake);
+    }
+
+    /// Same guarantee for `RegisterIndexerTx::stake_amount`.
+    #[test]
+    fn register_indexer_tx_bincode_round_trip() {
+        let tx = sample_tx(Some("http://query.example.com:3032".to_string()));
+        let bytes = bincode::serialize(&tx).expect("bincode serialize");
+        let got: RegisterIndexerTx = bincode::deserialize(&bytes).expect("bincode deserialize");
+        assert_eq!(got.stake_amount, tx.stake_amount);
+        assert_eq!(got.indexer_did, tx.indexer_did);
+        assert_eq!(got.query_endpoint, tx.query_endpoint);
     }
 }
