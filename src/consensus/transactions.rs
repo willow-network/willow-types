@@ -202,6 +202,203 @@ pub const MAX_SUBGROVE_ADMINS: usize = 32;
 pub const MAX_WASM_MODULES_PER_SUBGROVE: usize = 8;
 pub const MAX_WASM_MODULE_BYTES: usize = 5 * 1024 * 1024;
 
+/// Required prefix for every DID in Willow's identity system. Validators
+/// reject any `*_did` field whose value doesn't start here.
+pub const WILLOW_DID_PREFIX: &str = "did:willow:";
+
+/// Upper bound on the full DID string (`did:willow:` + identifier body).
+pub const MAX_DID_LEN: usize = 128;
+
+/// Upper bound on the key fragment portion of a `public_key_id`
+/// (everything after the `#`), e.g. `key-1`.
+pub const MAX_KEY_FRAGMENT_LEN: usize = 64;
+
+/// Upper bound on the full `public_key_id` (`{did}#{fragment}`).
+pub const MAX_PUBLIC_KEY_ID_LEN: usize = MAX_DID_LEN + 1 + MAX_KEY_FRAGMENT_LEN;
+
+/// Validate a Willow DID string: must start with `did:willow:`, must fit
+/// within `MAX_DID_LEN`, and the identifier body must be a non-empty
+/// run of ASCII alphanumerics plus `_` / `-`. The label argument is used
+/// in the error message so callers can attribute the failure ("owner_did",
+/// "admins[3]", etc.).
+pub fn validate_did(did: &str, label: &str) -> Result<(), String> {
+    if !did.starts_with(WILLOW_DID_PREFIX) {
+        return Err(format!("{} must start with {:?}", label, WILLOW_DID_PREFIX));
+    }
+    if did.len() > MAX_DID_LEN {
+        return Err(format!(
+            "{} length {} exceeds maximum {}",
+            label,
+            did.len(),
+            MAX_DID_LEN
+        ));
+    }
+    let body = &did[WILLOW_DID_PREFIX.len()..];
+    if body.is_empty() {
+        return Err(format!("{} identifier body must not be empty", label));
+    }
+    if !body
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    {
+        return Err(format!(
+            "{} identifier body {:?} must be ASCII alphanumeric, '-', or '_'",
+            label, body
+        ));
+    }
+    Ok(())
+}
+
+/// Validate a `public_key_id` of the form `{did}#{fragment}`. The DID
+/// portion must pass `validate_did`; the fragment must be a non-empty
+/// run of ASCII alphanumerics plus `_` / `-`, bounded by
+/// `MAX_KEY_FRAGMENT_LEN`. Exactly one `#` is required.
+pub fn validate_public_key_id(public_key_id: &str, label: &str) -> Result<(), String> {
+    if public_key_id.len() > MAX_PUBLIC_KEY_ID_LEN {
+        return Err(format!(
+            "{} length {} exceeds maximum {}",
+            label,
+            public_key_id.len(),
+            MAX_PUBLIC_KEY_ID_LEN
+        ));
+    }
+    let (did_part, fragment) = match public_key_id.split_once('#') {
+        Some((d, f)) => (d, f),
+        None => {
+            return Err(format!(
+                "{} must contain '#' separating DID from key fragment",
+                label
+            ))
+        }
+    };
+    if fragment.contains('#') {
+        return Err(format!("{} must contain exactly one '#'", label));
+    }
+    validate_did(did_part, &format!("{} DID portion", label))?;
+    if fragment.is_empty() {
+        return Err(format!("{} key fragment must not be empty", label));
+    }
+    if fragment.len() > MAX_KEY_FRAGMENT_LEN {
+        return Err(format!(
+            "{} key fragment length {} exceeds maximum {}",
+            label,
+            fragment.len(),
+            MAX_KEY_FRAGMENT_LEN
+        ));
+    }
+    if !fragment
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    {
+        return Err(format!(
+            "{} key fragment {:?} must be ASCII alphanumeric, '-', or '_'",
+            label, fragment
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod did_format_tests {
+    use super::*;
+
+    #[test]
+    fn accepts_real_world_dids() {
+        for did in [
+            "did:willow:owner",
+            "did:willow:val",
+            "did:willow:indexer123",
+            "did:willow:test-owner",
+            "did:willow:replay-attacker",
+            "did:willow:treasury",
+        ] {
+            validate_did(did, "did").unwrap_or_else(|e| panic!("{did}: {e}"));
+        }
+    }
+
+    #[test]
+    fn rejects_missing_prefix() {
+        assert!(validate_did("willow:owner", "did").is_err());
+        assert!(validate_did("did:other:owner", "did").is_err());
+        assert!(validate_did("", "did").is_err());
+    }
+
+    #[test]
+    fn rejects_empty_body() {
+        assert!(validate_did("did:willow:", "did").is_err());
+    }
+
+    #[test]
+    fn rejects_body_with_invalid_chars() {
+        for did in [
+            "did:willow:has space",
+            "did:willow:with/slash",
+            "did:willow:with.dot",
+            "did:willow:café",
+            "did:willow:colon:in:body",
+        ] {
+            assert!(
+                validate_did(did, "did").is_err(),
+                "{did} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_did_too_long() {
+        let did = format!("did:willow:{}", "a".repeat(MAX_DID_LEN));
+        assert!(validate_did(&did, "did").is_err());
+    }
+
+    #[test]
+    fn accepts_did_at_max_length() {
+        let body_len = MAX_DID_LEN - WILLOW_DID_PREFIX.len();
+        let did = format!("did:willow:{}", "a".repeat(body_len));
+        validate_did(&did, "did").unwrap();
+    }
+
+    #[test]
+    fn accepts_real_world_public_key_ids() {
+        for pkid in [
+            "did:willow:owner#key-1",
+            "did:willow:indexer123#key-1",
+            "did:willow:test-owner#key_2",
+        ] {
+            validate_public_key_id(pkid, "public_key_id").unwrap_or_else(|e| panic!("{pkid}: {e}"));
+        }
+    }
+
+    #[test]
+    fn rejects_public_key_id_missing_hash() {
+        assert!(validate_public_key_id("did:willow:owner", "public_key_id").is_err());
+    }
+
+    #[test]
+    fn rejects_public_key_id_empty_fragment() {
+        assert!(validate_public_key_id("did:willow:owner#", "public_key_id").is_err());
+    }
+
+    #[test]
+    fn rejects_public_key_id_with_multiple_hashes() {
+        // Catches malformed ids like "did:willow:owner#key#extra" — must be
+        // exactly one '#'.
+        assert!(validate_public_key_id("did:willow:owner#key#extra", "public_key_id").is_err());
+    }
+
+    #[test]
+    fn rejects_public_key_id_with_bad_fragment() {
+        assert!(validate_public_key_id("did:willow:owner#has space", "public_key_id").is_err());
+        assert!(validate_public_key_id("did:willow:owner#café", "public_key_id").is_err());
+    }
+
+    #[test]
+    fn rejects_public_key_id_with_bad_did_portion() {
+        // DID portion itself malformed.
+        assert!(validate_public_key_id("did:other:owner#key-1", "public_key_id").is_err());
+        assert!(validate_public_key_id("did:willow:#key-1", "public_key_id").is_err());
+    }
+}
+
 /// Transaction to register a new subgrove.
 ///
 /// Supports three modes via the `mode` field:
