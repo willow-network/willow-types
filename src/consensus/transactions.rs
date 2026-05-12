@@ -189,6 +189,19 @@ pub struct UnstakeTx {
     pub nonce: u64,
 }
 
+/// Upper bounds enforced by the consensus validator on `RegisterSubgroveTx`
+/// fields. Chosen to keep on-chain state bounded per subgrove and to limit
+/// the work the validator + mempool have to do per transaction. Bumping any
+/// of these is a consensus change: every validator has to agree on the new
+/// bound at the same height.
+pub const MAX_SUBGROVE_ID_LEN: usize = 64;
+pub const MAX_SUBGROVE_NAME_LEN: usize = 128;
+pub const MAX_SUBGROVE_DESCRIPTION_LEN: usize = 1024;
+pub const MAX_SUBGROVE_SCHEMA_LEN: usize = 65_536;
+pub const MAX_SUBGROVE_ADMINS: usize = 32;
+pub const MAX_WASM_MODULES_PER_SUBGROVE: usize = 8;
+pub const MAX_WASM_MODULE_BYTES: usize = 5 * 1024 * 1024;
+
 /// Transaction to register a new subgrove.
 ///
 /// Supports three modes via the `mode` field:
