@@ -477,6 +477,32 @@ pub struct PrivacyConfig {
     pub commitment_frequency: CommitmentFrequency,
 }
 
+/// Upper bounds for `PrivacyConfig`.
+pub const MAX_ALLOWED_INDEXERS: usize = 64;
+pub const MAX_COMMITMENT_BLOCKS: u64 = 15_768_000;
+pub const MAX_COMMITMENT_SECONDS: u64 = 31_536_000;
+
+impl PrivacyConfig {
+    /// Validate length / count / charset bounds.
+    pub fn validate(&self) -> Result<(), String> {
+        use crate::consensus::transactions::validate_did;
+        if let Some(allowed) = &self.allowed_indexers {
+            if allowed.len() > MAX_ALLOWED_INDEXERS {
+                return Err(format!(
+                    "privacy.allowed_indexers has {} entries (maximum {})",
+                    allowed.len(),
+                    MAX_ALLOWED_INDEXERS
+                ));
+            }
+            for (idx, did) in allowed.iter().enumerate() {
+                validate_did(did, &format!("privacy.allowed_indexers[{}]", idx))?;
+            }
+        }
+        self.commitment_frequency.validate()?;
+        Ok(())
+    }
+}
+
 /// How often the provider must publish state root commitments on-chain.
 /// Default: EveryUpdate (strongest freshness guarantee).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -496,6 +522,38 @@ pub enum CommitmentFrequency {
     /// out-of-band trust relationship with the provider (e.g., the owner IS the
     /// provider, or they share the same organizational control).
     Never,
+}
+
+impl CommitmentFrequency {
+    pub fn validate(&self) -> Result<(), String> {
+        match self {
+            CommitmentFrequency::EveryUpdate | CommitmentFrequency::Never => Ok(()),
+            CommitmentFrequency::EveryNBlocks(n) => {
+                if *n == 0 {
+                    return Err("commitment_frequency.EveryNBlocks must be > 0".to_string());
+                }
+                if *n > MAX_COMMITMENT_BLOCKS {
+                    return Err(format!(
+                        "commitment_frequency.EveryNBlocks {} exceeds maximum {}",
+                        n, MAX_COMMITMENT_BLOCKS
+                    ));
+                }
+                Ok(())
+            }
+            CommitmentFrequency::EveryNSeconds(n) => {
+                if *n == 0 {
+                    return Err("commitment_frequency.EveryNSeconds must be > 0".to_string());
+                }
+                if *n > MAX_COMMITMENT_SECONDS {
+                    return Err(format!(
+                        "commitment_frequency.EveryNSeconds {} exceeds maximum {}",
+                        n, MAX_COMMITMENT_SECONDS
+                    ));
+                }
+                Ok(())
+            }
+        }
+    }
 }
 
 /// Encrypted copy of a subgrove's symmetric key, wrapped for a specific reader DID.
@@ -557,4 +615,103 @@ pub enum PermissionRole {
     Writer,
     /// Can only read data.
     Reader,
+}
+
+#[cfg(test)]
+mod privacy_config_tests {
+    use super::*;
+
+    fn good() -> PrivacyConfig {
+        PrivacyConfig {
+            allowed_indexers: None,
+            commitment_frequency: CommitmentFrequency::EveryUpdate,
+        }
+    }
+
+    #[test]
+    fn default_passes() {
+        good().validate().unwrap();
+    }
+
+    #[test]
+    fn accepts_allowed_indexers_at_cap() {
+        let mut c = good();
+        c.allowed_indexers = Some(
+            (0..MAX_ALLOWED_INDEXERS)
+                .map(|i| format!("did:willow:indexer{i}"))
+                .collect(),
+        );
+        c.validate().unwrap();
+    }
+
+    #[test]
+    fn rejects_too_many_allowed_indexers() {
+        let mut c = good();
+        c.allowed_indexers = Some(
+            (0..MAX_ALLOWED_INDEXERS + 1)
+                .map(|i| format!("did:willow:indexer{i}"))
+                .collect(),
+        );
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_allowed_indexer_with_bad_did() {
+        let mut c = good();
+        c.allowed_indexers = Some(vec![
+            "did:willow:ok".to_string(),
+            "did:other:nope".to_string(),
+        ]);
+        let err = c.validate().expect_err("non-willow DID must be rejected");
+        assert!(err.contains("allowed_indexers[1]"), "{err}");
+    }
+
+    #[test]
+    fn rejects_every_n_blocks_zero() {
+        let mut c = good();
+        c.commitment_frequency = CommitmentFrequency::EveryNBlocks(0);
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_every_n_blocks_too_large() {
+        let mut c = good();
+        c.commitment_frequency = CommitmentFrequency::EveryNBlocks(MAX_COMMITMENT_BLOCKS + 1);
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn accepts_every_n_blocks_at_cap() {
+        let mut c = good();
+        c.commitment_frequency = CommitmentFrequency::EveryNBlocks(MAX_COMMITMENT_BLOCKS);
+        c.validate().unwrap();
+    }
+
+    #[test]
+    fn rejects_every_n_seconds_zero() {
+        let mut c = good();
+        c.commitment_frequency = CommitmentFrequency::EveryNSeconds(0);
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_every_n_seconds_too_large() {
+        let mut c = good();
+        c.commitment_frequency = CommitmentFrequency::EveryNSeconds(MAX_COMMITMENT_SECONDS + 1);
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn accepts_every_n_seconds_at_cap() {
+        let mut c = good();
+        c.commitment_frequency = CommitmentFrequency::EveryNSeconds(MAX_COMMITMENT_SECONDS);
+        c.validate().unwrap();
+    }
+
+    #[test]
+    fn accepts_never() {
+        let mut c = good();
+        c.commitment_frequency = CommitmentFrequency::Never;
+        c.validate().unwrap();
+    }
 }
