@@ -100,6 +100,15 @@ impl Default for IndexerConfig {
     }
 }
 
+/// Upper bound on `reward_per_epoch` (1000 WILL per indexer per epoch).
+pub const MAX_REWARD_PER_EPOCH: u128 = 1_000 * crate::token::units::ONE_WILL;
+
+/// Upper bound on `min_indexer_stake` (10M WILL).
+pub const MAX_MIN_INDEXER_STAKE: u128 = 10 * crate::token::units::ONE_MEGA_WILL;
+
+/// Upper bound on `epoch_length`, ~1 year at 2 s blocks.
+pub const MAX_EPOCH_LENGTH: u64 = 15_768_000;
+
 impl IndexerConfig {
     /// Validate the indexer configuration.
     pub fn validate(&self) -> Result<(), String> {
@@ -118,8 +127,26 @@ impl IndexerConfig {
         if self.reward_per_epoch == 0 {
             return Err("reward_per_epoch must be greater than 0".to_string());
         }
+        if self.reward_per_epoch > MAX_REWARD_PER_EPOCH {
+            return Err(format!(
+                "reward_per_epoch {} exceeds maximum {}",
+                self.reward_per_epoch, MAX_REWARD_PER_EPOCH
+            ));
+        }
         if self.epoch_length == 0 {
             return Err("epoch_length must be greater than 0".to_string());
+        }
+        if self.epoch_length > MAX_EPOCH_LENGTH {
+            return Err(format!(
+                "epoch_length {} exceeds maximum {}",
+                self.epoch_length, MAX_EPOCH_LENGTH
+            ));
+        }
+        if self.min_indexer_stake > MAX_MIN_INDEXER_STAKE {
+            return Err(format!(
+                "min_indexer_stake {} exceeds maximum {}",
+                self.min_indexer_stake, MAX_MIN_INDEXER_STAKE
+            ));
         }
         Ok(())
     }
@@ -438,5 +465,52 @@ mod tests {
         assert_eq!(got.stake_amount, tx.stake_amount);
         assert_eq!(got.indexer_did, tx.indexer_did);
         assert_eq!(got.query_endpoint, tx.query_endpoint);
+    }
+
+    #[test]
+    fn validate_default_passes() {
+        IndexerConfig::default().validate().unwrap();
+    }
+
+    #[test]
+    fn rejects_reward_per_epoch_too_large() {
+        let mut c = IndexerConfig::default();
+        c.reward_per_epoch = MAX_REWARD_PER_EPOCH + 1;
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn accepts_reward_per_epoch_at_cap() {
+        let mut c = IndexerConfig::default();
+        c.reward_per_epoch = MAX_REWARD_PER_EPOCH;
+        c.validate().unwrap();
+    }
+
+    #[test]
+    fn rejects_epoch_length_too_large() {
+        let mut c = IndexerConfig::default();
+        c.epoch_length = MAX_EPOCH_LENGTH + 1;
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn accepts_epoch_length_at_cap() {
+        let mut c = IndexerConfig::default();
+        c.epoch_length = MAX_EPOCH_LENGTH;
+        c.validate().unwrap();
+    }
+
+    #[test]
+    fn rejects_min_indexer_stake_too_large() {
+        let mut c = IndexerConfig::default();
+        c.min_indexer_stake = MAX_MIN_INDEXER_STAKE + 1;
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn accepts_min_indexer_stake_at_cap() {
+        let mut c = IndexerConfig::default();
+        c.min_indexer_stake = MAX_MIN_INDEXER_STAKE;
+        c.validate().unwrap();
     }
 }
