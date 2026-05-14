@@ -8,6 +8,7 @@ pub mod indexer_config;
 pub mod reputation;
 pub mod slashing;
 pub mod subgrove_deployment;
+pub mod warp_proof_types;
 
 pub use commitment_liveness::*;
 pub use data_updates::*;
@@ -19,3 +20,4 @@ pub use indexer_config::*;
 pub use reputation::*;
 pub use slashing::*;
 pub use subgrove_deployment::*;
+pub use warp_proof_types::*;

@@ -391,4 +391,10 @@ pub struct IndexedBlockSubmissionTx {
     pub signature: Vec<u8>,
     /// Nonce for replay protection
     pub nonce: u64,
+    /// Optional WARP fold-step proof for WarpExecution mode.
+    /// When present, consensus runs the WARP decider via `willow-folding`
+    /// instead of re-executing or running the GKR verifier.
+    #[serde(default)]
+    pub warp_proof:
+        Option<crate::consensus::indexing_transactions::warp_proof_types::WarpProofData>,
 }

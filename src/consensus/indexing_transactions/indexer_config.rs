@@ -203,6 +203,14 @@ impl IndexerConfig {
                 epoch_length: DEFAULT_EPOCH_LENGTH,
                 min_indexer_stake: 100_000_000_000_000_000_000_000,
             },
+            // WARP execution: cryptographic proof via folding, no redundancy needed
+            ExecutionMode::WarpExecution { .. } => Self {
+                min_indexers: 1,
+                max_indexers: 1,
+                reward_per_epoch: 120 * ONE_MILLI_WILL, // 0.12 WILL per epoch
+                epoch_length: DEFAULT_EPOCH_LENGTH,
+                min_indexer_stake: 100_000_000_000_000_000_000_000,
+            },
         }
     }
 }
@@ -260,6 +268,11 @@ impl FeeDistributionRates {
             ExecutionMode::GkrExecution => Self {
                 indexer_percent: 85,
                 validator_percent: 5,
+                treasury_percent: 10,
+            },
+            ExecutionMode::WarpExecution { .. } => Self {
+                indexer_percent: 88,
+                validator_percent: 2,
                 treasury_percent: 10,
             },
         }

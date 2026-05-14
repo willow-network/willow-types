@@ -172,4 +172,27 @@ pub enum ExecutionProof {
         /// Hash of the verification key.
         verification_key_hash: [u8; 32],
     },
+
+    /// WARP fold-step proof of correct transformation (folding scheme).
+    ///
+    /// Cryptographic proof produced by `willow-folding` (eprint 2025/753).
+    /// Each submission carries a one-step fold message linking the new
+    /// per-block claims to the running accumulator. The decider runs
+    /// rarely (e.g., per epoch) to settle the accumulated claim.
+    WarpProof {
+        /// The serialized WARP fold-step proof bytes.
+        proof: Vec<u8>,
+        /// Public inputs binding the proof to specific output data and
+        /// to the prior/next accumulator state.
+        public_inputs: super::warp_proof_types::WarpPublicInputs,
+        /// Codeword `log_n` used by this proof. Must match the subgrove's
+        /// `WarpExecution.codeword_log_n` declared at registration.
+        codeword_log_n: u8,
+        /// Construction 7.2 OOD sample count used by this proof.
+        n_ood: u8,
+        /// Construction 7.2 shift-query count used by this proof.
+        n_shifts: u8,
+        /// Whether GPU acceleration was used for proving.
+        gpu_accelerated: bool,
+    },
 }

@@ -31,6 +31,12 @@ use super::gkr_proof_types::GkrProofConfig;
 ///   Primarily useful for privacy-sensitive applications, since proof
 ///   verification is currently slower than direct consensus execution.
 ///
+/// - **WarpExecution**: Indexers accumulate per-block claims into a single
+///   WARP fold instance and submit a folding-scheme proof per submission.
+///   Consensus verifies via the WARP decider (`willow-folding`). Designed
+///   for fast historical sync — many block-level claims aggregate into a
+///   single decider check, with per-block prover cost ~1 ms (GPU, batched).
+///
 /// ## Trust Model Comparison
 ///
 /// | Mode              | Verification Cost | Trust Assumption                |
@@ -39,6 +45,7 @@ use super::gkr_proof_types::GkrProofConfig;
 /// | IndexerExecution  | Low-Medium        | Economic (sampling + slashing)  |
 /// | TeeExecution      | Low               | Hardware (Intel/AWS attestation)|
 /// | GkrExecution      | High              | Cryptographic (mathematical)    |
+/// | WarpExecution     | Low (amortized)   | Cryptographic (folding scheme)  |
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum ExecutionMode {
     /// Validators execute all transformations. Indexers submit raw data only.
@@ -128,6 +135,36 @@ pub enum ExecutionMode {
     ///
     /// Fee multiplier: 0.15x (85% discount)
     GkrExecution,
+
+    /// Indexers submit accumulated WARP fold proofs (folding scheme).
+    ///
+    /// Designed for high-throughput historical sync. Indexers accumulate
+    /// many per-block claims into a single twin-constrained accumulator
+    /// instance via WARP folding, then submit periodic checkpoints with
+    /// a small fold-step proof linking each submission to its predecessor.
+    /// Consensus verifies via the WARP decider in `willow-folding`.
+    ///
+    /// Per-block prover cost on GPU (batched, RTX 5090, n=2¹⁴): ~1 ms.
+    /// Per-block verifier cost is dominated by the (rare) decider step,
+    /// not the per-step fold update — making this the cheapest mode for
+    /// long-range historical sync.
+    ///
+    /// Fee multiplier: 0.12x (88% discount).
+    WarpExecution {
+        /// log₂ of the WARP codeword length used for this subgrove. The
+        /// fold's codeword has length `2 · 2^codeword_log_n` (twin form).
+        /// 14 is the validated bench size; production scale targets 22.
+        codeword_log_n: u8,
+        /// Construction 7.2 OOD sample count. Drives r = 1 + n_ood +
+        /// n_shifts, which must be a power of two. Soundness for OOD
+        /// sampling improves geometrically per query at log_n cost.
+        n_ood: u8,
+        /// Construction 7.2 shift-query count. Each query authenticates
+        /// one codeword leaf against the Merkle commitment, giving
+        /// Reed-Solomon-style proximity testing. Shipped default
+        /// `(n_ood, n_shifts) = (1, 2)` mirrors the bench config.
+        n_shifts: u8,
+    },
 }
 
 impl ExecutionMode {
@@ -156,6 +193,16 @@ impl ExecutionMode {
         matches!(self, ExecutionMode::GkrExecution)
     }
 
+    /// Returns true if this mode uses WARP folding-scheme verification.
+    pub fn is_warp_execution(&self) -> bool {
+        matches!(self, ExecutionMode::WarpExecution { .. })
+    }
+
+    /// Returns true if this mode requires a WARP fold-step proof in every submission.
+    pub fn requires_warp_proof(&self) -> bool {
+        matches!(self, ExecutionMode::WarpExecution { .. })
+    }
+
     /// Get the sampling rate for verification (0.0 to 1.0).
     ///
     /// - ConsensusExecution: Returns 1.0 (100% - consensus always executes)
@@ -169,6 +216,7 @@ impl ExecutionMode {
             } => *sampling_rate_percent as f64 / 100.0,
             ExecutionMode::TeeExecution { .. } => 0.0,
             ExecutionMode::GkrExecution => 0.0,
+            ExecutionMode::WarpExecution { .. } => 0.0,
         }
     }
 
@@ -181,6 +229,7 @@ impl ExecutionMode {
             } => *sampling_rate_percent,
             ExecutionMode::TeeExecution { .. } => 0,
             ExecutionMode::GkrExecution => 0,
+            ExecutionMode::WarpExecution { .. } => 0,
         }
     }
 
@@ -206,6 +255,7 @@ impl ExecutionMode {
             } => *sampling_rate_percent > 0,
             ExecutionMode::TeeExecution { .. } => false,
             ExecutionMode::GkrExecution => false,
+            ExecutionMode::WarpExecution { .. } => false,
         }
     }
 
@@ -213,6 +263,25 @@ impl ExecutionMode {
     pub fn tee_type(&self) -> Option<crate::tee::TeeType> {
         match self {
             ExecutionMode::TeeExecution { tee_type } => Some(*tee_type),
+            _ => None,
+        }
+    }
+
+    /// Get the WARP codeword `log_n` if this is WarpExecution mode.
+    pub fn warp_codeword_log_n(&self) -> Option<u8> {
+        match self {
+            ExecutionMode::WarpExecution { codeword_log_n, .. } => Some(*codeword_log_n),
+            _ => None,
+        }
+    }
+
+    /// Get the WARP `(n_ood, n_shifts)` sampling counts if this is
+    /// WarpExecution mode.
+    pub fn warp_sampling(&self) -> Option<(u8, u8)> {
+        match self {
+            ExecutionMode::WarpExecution {
+                n_ood, n_shifts, ..
+            } => Some((*n_ood, *n_shifts)),
             _ => None,
         }
     }
@@ -231,6 +300,7 @@ impl ExecutionMode {
             } => 0.3 + (0.35 * *sampling_rate_percent as f64 / 50.0),
             ExecutionMode::TeeExecution { .. } => 0.1,
             ExecutionMode::GkrExecution => 0.15,
+            ExecutionMode::WarpExecution { .. } => 0.12,
         }
     }
 
@@ -258,6 +328,38 @@ impl ExecutionMode {
                 }
             }
             ExecutionMode::GkrExecution => Ok(()),
+            ExecutionMode::WarpExecution {
+                codeword_log_n,
+                n_ood,
+                n_shifts,
+            } => {
+                if !(8..=24).contains(codeword_log_n) {
+                    return Err(format!(
+                        "WarpExecution codeword_log_n must be in [8, 24]; got {codeword_log_n}",
+                    ));
+                }
+                let r = 1usize + *n_ood as usize + *n_shifts as usize;
+                if !r.is_power_of_two() {
+                    return Err(format!(
+                        "WarpExecution r = 1 + n_ood + n_shifts = {r} must be a power of two",
+                    ));
+                }
+                // Below r=4 the sampling profile (no OOD samples + at
+                // most one shift query) collapses Construction 7.2's
+                // codeword-batching soundness. The bench-validated
+                // default `(1, 2)` sits exactly at r=4.
+                if r < 4 {
+                    return Err(format!(
+                        "WarpExecution r = {r} is below the soundness floor (≥ 4)",
+                    ));
+                }
+                if r > 256 {
+                    return Err(format!(
+                        "WarpExecution r = {r} exceeds reasonable bound (≤ 256)",
+                    ));
+                }
+                Ok(())
+            }
         }
     }
 
@@ -297,6 +399,36 @@ impl ExecutionMode {
     /// Create GkrExecution mode (requires GKR proof in every submission).
     pub fn gkr() -> Self {
         ExecutionMode::GkrExecution
+    }
+
+    /// Create WarpExecution mode with the bench-validated codeword size (n=2¹⁴)
+    /// and the default sampling profile `(n_ood=1, n_shifts=2)` → `r=4`.
+    pub fn warp() -> Self {
+        ExecutionMode::WarpExecution {
+            codeword_log_n: 14,
+            n_ood: 1,
+            n_shifts: 2,
+        }
+    }
+
+    /// Create WarpExecution mode with a specific codeword size and the
+    /// default `(n_ood=1, n_shifts=2)` sampling profile.
+    pub fn warp_with_log_n(codeword_log_n: u8) -> Self {
+        ExecutionMode::WarpExecution {
+            codeword_log_n,
+            n_ood: 1,
+            n_shifts: 2,
+        }
+    }
+
+    /// Create WarpExecution mode with explicit codeword size and sampling
+    /// counts. `r = 1 + n_ood + n_shifts` must be a power of two.
+    pub fn warp_with(codeword_log_n: u8, n_ood: u8, n_shifts: u8) -> Self {
+        ExecutionMode::WarpExecution {
+            codeword_log_n,
+            n_ood,
+            n_shifts,
+        }
     }
 }
 
@@ -469,5 +601,95 @@ impl RealtimeIndexingConfig {
         let estimated_time = base_proof_time * self.batch_size as u64;
 
         estimated_time <= target_latency_ms
+    }
+}
+
+#[cfg(test)]
+mod warp_execution_mode_tests {
+    use super::*;
+
+    #[test]
+    fn warp_constructor_uses_bench_validated_size() {
+        let mode = ExecutionMode::warp();
+        assert_eq!(mode.warp_codeword_log_n(), Some(14));
+        assert!(mode.is_warp_execution());
+        assert!(mode.requires_warp_proof());
+        assert!(!mode.is_gkr_execution());
+        assert!(!mode.requires_reexecution());
+        assert_eq!(mode.verification_rate(), 0.0);
+        assert_eq!(mode.verification_rate_percent(), 0);
+    }
+
+    #[test]
+    fn warp_validate_rejects_out_of_range_log_n() {
+        assert!(ExecutionMode::warp_with_log_n(7).validate().is_err());
+        assert!(ExecutionMode::warp_with_log_n(25).validate().is_err());
+        assert!(ExecutionMode::warp_with_log_n(8).validate().is_ok());
+        assert!(ExecutionMode::warp_with_log_n(14).validate().is_ok());
+        assert!(ExecutionMode::warp_with_log_n(24).validate().is_ok());
+    }
+
+    #[test]
+    fn warp_fee_multiplier_sits_between_tee_and_gkr() {
+        // TEE (0.10, hardware-attested) is cheapest; WARP (0.12, log-time decider)
+        // is between TEE and GKR (0.15, full-circuit verify); both crypto modes
+        // beat indexer/consensus execution.
+        let warp = ExecutionMode::warp().fee_multiplier();
+        let tee = ExecutionMode::tee_nitro().fee_multiplier();
+        let gkr = ExecutionMode::GkrExecution.fee_multiplier();
+        assert!(tee < warp, "tee {tee} should be < warp {warp}");
+        assert!(warp < gkr, "warp {warp} should be < gkr {gkr}");
+        assert!(warp < ExecutionMode::indexer_low().fee_multiplier());
+        assert!(warp < ExecutionMode::ConsensusExecution.fee_multiplier());
+    }
+
+    #[test]
+    fn warp_round_trips_through_serde_json() {
+        let mode = ExecutionMode::warp_with_log_n(18);
+        let json = serde_json::to_string(&mode).expect("serialize");
+        let decoded: ExecutionMode = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(mode, decoded);
+        assert_eq!(decoded.warp_codeword_log_n(), Some(18));
+    }
+
+    #[test]
+    fn warp_round_trips_through_bincode() {
+        let mode = ExecutionMode::warp_with(14, 1, 2);
+        let bytes = bincode::serialize(&mode).expect("bincode serialize");
+        let decoded: ExecutionMode = bincode::deserialize(&bytes).expect("bincode deserialize");
+        assert_eq!(mode, decoded);
+    }
+
+    #[test]
+    fn warp_validate_rejects_r_below_soundness_floor() {
+        // r = 1 + 0 + 0 = 1: degenerate, no OOD samples, no shift queries.
+        // Construction 7.2 codeword-batching soundness collapses below r=4.
+        let mode = ExecutionMode::warp_with(14, 0, 0);
+        let err = mode.validate().expect_err("r=1 must be rejected");
+        assert!(
+            err.contains("soundness floor"),
+            "error should explain soundness floor, got: {err}"
+        );
+        // r = 1 + 1 + 0 = 2: still below floor, but is_power_of_two() rejects
+        // it first with a different message. Either rejection is acceptable.
+        assert!(ExecutionMode::warp_with(14, 1, 0).validate().is_err());
+        // r = 1 + 1 + 2 = 4: bench-validated default, passes.
+        assert!(ExecutionMode::warp_with(14, 1, 2).validate().is_ok());
+        // r = 1 + 3 + 4 = 8: still valid.
+        assert!(ExecutionMode::warp_with(14, 3, 4).validate().is_ok());
+    }
+
+    #[test]
+    fn execution_mode_warp_is_last_variant() {
+        // Bincode encodes enum discriminants by declaration order. If
+        // WarpExecution drifts from the tail, every variant after it
+        // shifts and existing serialized data fails to decode. Pin the
+        // discriminant via a bincode round-trip of the next-to-last
+        // variant (GkrExecution → discriminant 3) and WarpExecution
+        // (→ discriminant 4, the tail).
+        let gkr_bytes = bincode::serialize(&ExecutionMode::GkrExecution).expect("serialize gkr");
+        assert_eq!(&gkr_bytes[..4], &[3, 0, 0, 0]);
+        let warp_bytes = bincode::serialize(&ExecutionMode::warp()).expect("serialize warp");
+        assert_eq!(&warp_bytes[..4], &[4, 0, 0, 0]);
     }
 }
