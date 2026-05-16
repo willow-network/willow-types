@@ -576,6 +576,49 @@ pub struct EncryptedKeyGrant {
     pub granted_at: u64,
 }
 
+/// X25519 ephemeral public key size in bytes.
+pub const X25519_PUBKEY_LEN: usize = 32;
+
+/// XChaCha20-Poly1305 nonce (24 bytes) + auth tag (16 bytes); a valid
+/// `encrypted_key` is at least this long even for a zero-byte plaintext.
+pub const MIN_ENCRYPTED_KEY_LEN: usize = 24 + 16;
+
+/// Upper bound on `encrypted_key`. The wrapped payload is a single 32-byte
+/// subgrove key, so anything larger than ~1 KiB is structurally suspect.
+pub const MAX_ENCRYPTED_KEY_LEN: usize = 1024;
+
+impl EncryptedKeyGrant {
+    /// Validate length / charset / DID-format bounds on every field.
+    pub fn validate(&self) -> Result<(), String> {
+        use crate::consensus::transactions::{validate_did, validate_public_key_id};
+        validate_did(&self.grantee_did, "grantee_did")?;
+        validate_did(&self.granted_by, "granted_by")?;
+        validate_public_key_id(&self.grantee_public_key_id, "grantee_public_key_id")?;
+        if self.ephemeral_public_key.len() != X25519_PUBKEY_LEN {
+            return Err(format!(
+                "ephemeral_public_key must be {} bytes (got {})",
+                X25519_PUBKEY_LEN,
+                self.ephemeral_public_key.len()
+            ));
+        }
+        if self.encrypted_key.len() < MIN_ENCRYPTED_KEY_LEN {
+            return Err(format!(
+                "encrypted_key length {} is below minimum {}",
+                self.encrypted_key.len(),
+                MIN_ENCRYPTED_KEY_LEN
+            ));
+        }
+        if self.encrypted_key.len() > MAX_ENCRYPTED_KEY_LEN {
+            return Err(format!(
+                "encrypted_key length {} exceeds maximum {}",
+                self.encrypted_key.len(),
+                MAX_ENCRYPTED_KEY_LEN
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// Algorithm used for key wrapping in EncryptedKeyGrant.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum EncryptionAlgorithm {
@@ -713,5 +756,89 @@ mod privacy_config_tests {
         let mut c = good();
         c.commitment_frequency = CommitmentFrequency::Never;
         c.validate().unwrap();
+    }
+}
+
+#[cfg(test)]
+mod encrypted_key_grant_tests {
+    use super::*;
+
+    fn good() -> EncryptedKeyGrant {
+        EncryptedKeyGrant {
+            grantee_did: "did:willow:grantee".to_string(),
+            key_epoch: 1,
+            grantee_public_key_id: "did:willow:grantee#key-1".to_string(),
+            ephemeral_public_key: vec![0u8; X25519_PUBKEY_LEN],
+            encrypted_key: vec![0u8; MIN_ENCRYPTED_KEY_LEN],
+            granted_by: "did:willow:owner".to_string(),
+            granted_at: 1_700_000_000,
+        }
+    }
+
+    #[test]
+    fn known_good_passes() {
+        good().validate().unwrap();
+    }
+
+    #[test]
+    fn accepts_encrypted_key_at_caps() {
+        let mut g = good();
+        g.encrypted_key = vec![0u8; MAX_ENCRYPTED_KEY_LEN];
+        g.validate().unwrap();
+    }
+
+    #[test]
+    fn rejects_grantee_did_bad_format() {
+        let mut g = good();
+        g.grantee_did = "did:other:nope".to_string();
+        assert!(g.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_granted_by_bad_format() {
+        let mut g = good();
+        g.granted_by = "did:other:nope".to_string();
+        assert!(g.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_grantee_public_key_id_without_hash() {
+        let mut g = good();
+        g.grantee_public_key_id = "did:willow:grantee".to_string();
+        assert!(g.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_ephemeral_public_key_too_short() {
+        let mut g = good();
+        g.ephemeral_public_key = vec![0u8; X25519_PUBKEY_LEN - 1];
+        let err = g
+            .validate()
+            .expect_err("short X25519 pubkey must be rejected");
+        assert!(err.contains("ephemeral_public_key"), "{err}");
+    }
+
+    #[test]
+    fn rejects_ephemeral_public_key_too_long() {
+        let mut g = good();
+        g.ephemeral_public_key = vec![0u8; X25519_PUBKEY_LEN + 1];
+        assert!(g.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_encrypted_key_too_short() {
+        let mut g = good();
+        g.encrypted_key = vec![0u8; MIN_ENCRYPTED_KEY_LEN - 1];
+        let err = g
+            .validate()
+            .expect_err("encrypted_key shorter than nonce+auth_tag must be rejected");
+        assert!(err.contains("encrypted_key"), "{err}");
+    }
+
+    #[test]
+    fn rejects_encrypted_key_too_long() {
+        let mut g = good();
+        g.encrypted_key = vec![0u8; MAX_ENCRYPTED_KEY_LEN + 1];
+        assert!(g.validate().is_err());
     }
 }
