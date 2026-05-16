@@ -143,7 +143,8 @@ pub struct TemplateSubgroveConfig {
     pub contracts: Vec<String>,
     /// Event signatures to filter (keccak256 hashes as hex strings).
     pub event_signatures: Vec<String>,
-    /// Optional blockchain chain identifier (e.g., "ethereum", "polygon").
+    /// Optional canonical chain identifier (e.g., "mainnet", "polygon").
+    /// Must round-trip through [`SupportedChain`](crate::consensus::SupportedChain).
     pub chain: Option<String>,
 }
 
@@ -208,6 +209,12 @@ impl TemplateSubgroveConfig {
                     MAX_TEMPLATE_CHAIN_LEN
                 ));
             }
+            if crate::consensus::SupportedChain::from_canonical_id(chain).is_none() {
+                return Err(format!(
+                    "template_config.chain {:?} is not a canonical SupportedChain id",
+                    chain
+                ));
+            }
         }
 
         Ok(())
@@ -258,7 +265,7 @@ mod template_subgrove_config_tests {
             event_signatures: vec![
                 "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef".to_string(),
             ],
-            chain: Some("ethereum".to_string()),
+            chain: Some("mainnet".to_string()),
         }
     }
 
@@ -388,8 +395,29 @@ mod template_subgrove_config_tests {
                 "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef".to_string()
             })
             .collect();
-        c.chain = Some("x".repeat(MAX_TEMPLATE_CHAIN_LEN));
+        // chain must be a canonical SupportedChain id; "arbitrum-one" is
+        // the longest canonical id at 12 chars — well under the length cap.
+        c.chain = Some("arbitrum-one".to_string());
         c.validate().unwrap();
+    }
+
+    #[test]
+    fn rejects_non_canonical_chain() {
+        let mut c = good_config();
+        c.chain = Some("ethereum".to_string()); // legacy alias — no longer accepted
+        let err = c
+            .validate()
+            .expect_err("non-canonical chain must be rejected");
+        assert!(err.contains("canonical SupportedChain"), "{err}");
+    }
+
+    #[test]
+    fn accepts_every_canonical_chain() {
+        for chain in crate::consensus::SupportedChain::ALL {
+            let mut c = good_config();
+            c.chain = Some(chain.canonical_id().to_string());
+            c.validate().unwrap_or_else(|e| panic!("{}: {}", chain, e));
+        }
     }
 }
 
