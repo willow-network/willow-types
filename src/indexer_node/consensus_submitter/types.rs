@@ -277,6 +277,8 @@ pub enum TransactionType {
     HistoricalCheckpoint,
     /// Single block update at chain tip (with optional GKR proof)
     IndexedBlockSubmission,
+    /// Single Solana slot update at chain tip.
+    IndexedSlotSubmission,
     SubgroveRegistration,
     IndexerRegistration,
     Other(String),
@@ -310,7 +312,75 @@ pub enum TransactionType {
 /// When the subgrove requires event inclusion verification, consensus verifies
 /// each proof against `block_header.receipts_root`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IndexedBlockSubmissionTx {
+pub enum IndexedBlockSubmissionTx {
+    /// EVM-family submission with block + MPT inclusion proofs.
+    Evm(EvmIndexedBlockSubmissionTx),
+    /// Solana-family submission with slot + matched-instruction payload.
+    /// v1: no inclusion proofs (no MPT analogue on Solana) and no
+    /// transformation proofs (Solana GKR circuits are Tier 3 work).
+    Solana(SolanaIndexedSlotSubmissionTx),
+}
+
+impl IndexedBlockSubmissionTx {
+    pub fn subgrove_id(&self) -> &str {
+        match self {
+            IndexedBlockSubmissionTx::Evm(t) => &t.subgrove_id,
+            IndexedBlockSubmissionTx::Solana(t) => &t.subgrove_id,
+        }
+    }
+
+    pub fn indexer_did(&self) -> &DID {
+        match self {
+            IndexedBlockSubmissionTx::Evm(t) => &t.indexer_did,
+            IndexedBlockSubmissionTx::Solana(t) => &t.indexer_did,
+        }
+    }
+
+    pub fn nonce(&self) -> u64 {
+        match self {
+            IndexedBlockSubmissionTx::Evm(t) => t.nonce,
+            IndexedBlockSubmissionTx::Solana(t) => t.nonce,
+        }
+    }
+
+    pub fn timestamp(&self) -> u64 {
+        match self {
+            IndexedBlockSubmissionTx::Evm(t) => t.timestamp,
+            IndexedBlockSubmissionTx::Solana(t) => t.timestamp,
+        }
+    }
+
+    pub fn data_hash(&self) -> &[u8; 32] {
+        match self {
+            IndexedBlockSubmissionTx::Evm(t) => &t.data_hash,
+            IndexedBlockSubmissionTx::Solana(t) => &t.data_hash,
+        }
+    }
+
+    pub fn indexed_data(&self) -> &[u8] {
+        match self {
+            IndexedBlockSubmissionTx::Evm(t) => &t.indexed_data,
+            IndexedBlockSubmissionTx::Solana(t) => &t.indexed_data,
+        }
+    }
+
+    pub fn storage_cost(&self) -> u128 {
+        match self {
+            IndexedBlockSubmissionTx::Evm(t) => t.storage_cost,
+            IndexedBlockSubmissionTx::Solana(t) => t.storage_cost,
+        }
+    }
+
+    pub fn signature(&self) -> &[u8] {
+        match self {
+            IndexedBlockSubmissionTx::Evm(t) => &t.signature,
+            IndexedBlockSubmissionTx::Solana(t) => &t.signature,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EvmIndexedBlockSubmissionTx {
     pub transaction_type: TransactionType,
     /// The indexer's DID
     pub indexer_did: DID,
@@ -397,4 +467,38 @@ pub struct IndexedBlockSubmissionTx {
     #[serde(default)]
     pub warp_proof:
         Option<crate::consensus::indexing_transactions::warp_proof_types::WarpProofData>,
+}
+
+/// Solana-family chain-tip submission.
+///
+/// v1 carries the matched-instruction payload for one finalized slot.
+/// Solana lacks an MPT analogue, so there are no inclusion proofs in
+/// this submission — verification falls back to the subgrove's
+/// `IndexerExecution` sampling tier. Solana light-client + GKR
+/// integration is Tier 3 work.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SolanaIndexedSlotSubmissionTx {
+    pub transaction_type: TransactionType,
+    /// The indexer's DID
+    pub indexer_did: DID,
+    /// Subgrove this update is for
+    pub subgrove_id: String,
+    /// Slot number that was indexed
+    pub slot: u64,
+    /// Slot blockhash (base58-encoded)
+    pub blockhash: String,
+    /// Parent slot number
+    pub parent_slot: u64,
+    /// Hash of `indexed_data` (typically SHA-256 of the bincode payload)
+    pub data_hash: [u8; 32],
+    /// Bincode-serialized `Vec<MatchedInstruction>` (from `willow_network::solana`).
+    pub indexed_data: Vec<u8>,
+    /// Storage cost for this data
+    pub storage_cost: u128,
+    /// Timestamp when update was created
+    pub timestamp: u64,
+    /// Ed25519 signature over all fields
+    pub signature: Vec<u8>,
+    /// Nonce for replay protection
+    pub nonce: u64,
 }
