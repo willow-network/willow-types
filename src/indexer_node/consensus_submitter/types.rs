@@ -493,6 +493,9 @@ pub struct SolanaIndexedSlotSubmissionTx {
     pub data_hash: [u8; 32],
     /// Bincode-serialized `Vec<MatchedInstruction>` (from `willow_network::solana`).
     pub indexed_data: Vec<u8>,
+    /// Optional TEE attestation for TeeExecution mode.
+    #[serde(default)]
+    pub tee_attestation: Option<crate::tee::TeeAttestation>,
     /// Storage cost for this data
     pub storage_cost: u128,
     /// Timestamp when update was created
