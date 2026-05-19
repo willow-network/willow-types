@@ -251,13 +251,28 @@ impl<'de> Deserialize<'de> for SolanaPubkey {
     }
 }
 
-/// A parsed Solidity event signature of the form `Name(type1,type2,...)`.
-/// Whitespace inside the signature is rejected to keep the canonical form
-/// stable across producers.
+/// A parsed Solidity event signature of the form
+/// `Name(type1 [indexed], type2 [indexed], ...)`.
+///
+/// Each param is `<solidity-type>` optionally followed by ` indexed`.
+/// The `indexed` keyword is significant — it tells the decoder to read
+/// the param from log topics (one 32-byte slot per indexed param)
+/// instead of the ABI-encoded data blob. Solidity allows indexed params
+/// at any position (interleaved with non-indexed), so the parser tracks
+/// per-position flags rather than assuming "first N params are indexed".
+///
+/// `raw` preserves whatever the user wrote; `canonical()` strips the
+/// `indexed` keyword to produce the topic0-hash input.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct EventSignature {
-    /// Full canonical signature (e.g. `Transfer(address,address,uint256)`).
+    /// User-facing form, e.g. `Supply(address indexed,address,address indexed,uint256,uint16 indexed)`.
     raw: String,
+    /// Param Solidity type strings (without `indexed`), in declaration order.
+    param_types: Vec<String>,
+    /// Per-position `indexed` flag, same length as `param_types`.
+    indexed: Vec<bool>,
+    /// Event name (left of `(`).
+    name: String,
 }
 
 impl EventSignature {
@@ -278,19 +293,88 @@ impl EventSignature {
             return Err(format!("event name {:?} is not a valid identifier", name));
         }
 
+        let mut param_types: Vec<String> = Vec::new();
+        let mut indexed: Vec<bool> = Vec::new();
         if !params.is_empty() {
             for part in params.split(',') {
-                if !is_solidity_param_type(part) {
-                    return Err(format!("invalid parameter type {:?} in {:?}", part, s));
+                // Strict: the only whitespace allowed is exactly one
+                // space between the type and the literal `indexed`
+                // keyword. No leading/trailing whitespace; no whitespace
+                // inside the type.
+                let (ty, is_indexed) = match part.split_once(' ') {
+                    Some((ty, rest)) => {
+                        if rest != "indexed" {
+                            return Err(format!(
+                                "invalid parameter modifier {:?} in {:?} \
+                                 (only `indexed` is allowed; whitespace must be a single \
+                                 separator between the type and `indexed`)",
+                                rest, s
+                            ));
+                        }
+                        (ty, true)
+                    }
+                    None => (part, false),
+                };
+                if !is_solidity_param_type(ty) {
+                    return Err(format!("invalid parameter type {:?} in {:?}", ty, s));
                 }
+                param_types.push(ty.to_string());
+                indexed.push(is_indexed);
             }
         }
 
-        Ok(EventSignature { raw: s.to_string() })
+        let indexed_count = indexed.iter().filter(|b| **b).count();
+        if indexed_count > 3 {
+            return Err(format!(
+                "event {:?} has {} indexed params; Solidity allows at most 3",
+                s, indexed_count
+            ));
+        }
+
+        Ok(EventSignature {
+            raw: s.to_string(),
+            param_types,
+            indexed,
+            name: name.to_string(),
+        })
     }
 
     pub fn as_str(&self) -> &str {
         &self.raw
+    }
+
+    /// Topic0-hash input: `Name(type1,type2,...)` with no `indexed`
+    /// keyword and no whitespace. Matches what `keccak256` runs over in
+    /// every Solidity compiler.
+    pub fn canonical(&self) -> String {
+        let mut out = String::with_capacity(self.raw.len());
+        out.push_str(&self.name);
+        out.push('(');
+        for (i, ty) in self.param_types.iter().enumerate() {
+            if i > 0 {
+                out.push(',');
+            }
+            out.push_str(ty);
+        }
+        out.push(')');
+        out
+    }
+
+    /// Event name, e.g. `Supply`.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Param Solidity type strings (without `indexed`), in declaration order.
+    pub fn param_types(&self) -> &[String] {
+        &self.param_types
+    }
+
+    /// Per-position `indexed` flags, in declaration order. `true` means
+    /// the param is carried in a log topic; `false` means it lives in
+    /// the ABI-encoded data blob.
+    pub fn indexed(&self) -> &[bool] {
+        &self.indexed
     }
 }
 
@@ -848,6 +932,53 @@ mod tests {
         assert!(EventSignature::parse("Transfer(address, address)").is_err());
         assert!(EventSignature::parse("Transfer").is_err());
         assert!(EventSignature::parse("9Bad(uint256)").is_err());
+    }
+
+    #[test]
+    fn event_sig_indexed_keyword() {
+        // The only modifier we accept inside a param is exactly ` indexed`.
+        let sig = EventSignature::parse(
+            "Supply(address indexed,address,address indexed,uint256,uint16 indexed)",
+        )
+        .unwrap();
+        assert_eq!(sig.name(), "Supply");
+        assert_eq!(
+            sig.param_types(),
+            &["address", "address", "address", "uint256", "uint16"]
+        );
+        assert_eq!(sig.indexed(), &[true, false, true, false, true]);
+        // Canonical form is what gets keccak'd for topic0.
+        assert_eq!(
+            sig.canonical(),
+            "Supply(address,address,address,uint256,uint16)"
+        );
+    }
+
+    #[test]
+    fn event_sig_indexed_count_limit() {
+        // Solidity limits to 3 indexed params per event.
+        let err = EventSignature::parse(
+            "Bad(uint256 indexed,uint256 indexed,uint256 indexed,uint256 indexed)",
+        )
+        .unwrap_err();
+        assert!(err.contains("at most 3"), "{err}");
+    }
+
+    #[test]
+    fn event_sig_rejects_unknown_modifier() {
+        assert!(EventSignature::parse("X(address memory)").is_err());
+        assert!(EventSignature::parse("X(address  indexed)").is_err());
+    }
+
+    #[test]
+    fn event_sig_topic0_independent_of_indexed_keyword() {
+        // Two signatures that differ only in `indexed` placement must
+        // hash to the same topic0 — that's the contract Solidity enforces
+        // and what on-chain logs match against.
+        let with =
+            EventSignature::parse("Transfer(address indexed,address indexed,uint256)").unwrap();
+        let without = EventSignature::parse("Transfer(address,address,uint256)").unwrap();
+        assert_eq!(with.canonical(), without.canonical());
     }
 
     #[test]
