@@ -34,6 +34,10 @@ pub enum Transaction {
     // Identity transactions
     /// Register a decentralized identifier (DID).
     RegisterDid(RegisterDidTx),
+    /// Update (rotate) an existing DID document. The tx must be signed by a
+    /// key already in the current on-chain DID document's authentication set,
+    /// so it can swap in fresh public keys for the same DID.
+    UpdateDid(UpdateDidTx),
 
     // Data transactions
     /// Store new data in a subgrove.
@@ -538,6 +542,29 @@ pub struct RegisterDidTx {
     /// Cryptographic signature proving key ownership.
     pub signature: Vec<u8>,
     /// ID of the public key used for signing.
+    pub public_key_id: String,
+    /// Replay protection nonce.
+    pub nonce: u64,
+}
+
+/// Transaction to update (rotate) an existing DID document.
+///
+/// The tx must be signed with a key that is currently in the on-chain DID
+/// document's authentication set. The replacement document may then list
+/// arbitrarily different public keys, enabling key rotation: add the new
+/// key, remove the old one, submit. After the tx commits, only keys in the
+/// new authentication set can sign further txs as this DID.
+///
+/// `public_key_id` identifies the key used to sign this tx. It must resolve
+/// against the **current** on-chain DID document, not the new one carried
+/// in `did_document`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateDidTx {
+    /// The new DID document. Its `id` must match the on-chain DID being updated.
+    pub did_document: DidDocument,
+    /// Signature over a canonical message that includes the new document and nonce.
+    pub signature: Vec<u8>,
+    /// ID of the **current** (on-chain) public key used to sign this update.
     pub public_key_id: String,
     /// Replay protection nonce.
     pub nonce: u64,
