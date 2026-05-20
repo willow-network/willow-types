@@ -34,10 +34,6 @@ pub enum Transaction {
     // Identity transactions
     /// Register a decentralized identifier (DID).
     RegisterDid(RegisterDidTx),
-    /// Update (rotate) an existing DID document. The tx must be signed by a
-    /// key already in the current on-chain DID document's authentication set,
-    /// so it can swap in fresh public keys for the same DID.
-    UpdateDid(UpdateDidTx),
 
     // Data transactions
     /// Store new data in a subgrove.
@@ -140,6 +136,17 @@ pub enum Transaction {
     UnblockContentHash(UnblockContentHashTx),
     /// Report content for governance review (any DID).
     ReportContent(ReportContentTx),
+
+    // ⚠️ Append-only beyond this point. Bincode encodes enum variant tags by
+    // declaration order, and the tx bytes for every block on the live chain
+    // are immutable. Inserting a variant earlier in the enum shifts every
+    // subsequent variant's tag and silently breaks historical tx decoding
+    // (`/tx/decode`, block explorer, anything that round-trips bincode
+    // Transactions). Always add new variants at the end.
+    /// Update (rotate) an existing DID document. The tx must be signed by a
+    /// key already in the current on-chain DID document's authentication set,
+    /// so it can swap in fresh public keys for the same DID.
+    UpdateDid(UpdateDidTx),
 }
 
 /// Transaction to transfer WILL tokens between accounts.
