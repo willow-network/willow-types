@@ -146,6 +146,7 @@ mod tests {
 
     fn sample_proof() -> GkrProofData {
         GkrProofData {
+            proof_version: CURRENT_PROOF_VERSION,
             proof: vec![0xaau8; 256],
             public_inputs: GkrPublicInputs {
                 output_root: [2; 32],

@@ -111,9 +111,15 @@ impl GkrPublicInputs {
     }
 }
 
+/// Current proof-format version; verifiers reject other values.
+pub const CURRENT_PROOF_VERSION: u8 = 1;
+
 /// Complete GKR proof data for submission and verification.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GkrProofData {
+    /// Wire-format version; must equal [`CURRENT_PROOF_VERSION`].
+    pub proof_version: u8,
+
     /// The serialized GKR proof bytes.
     pub proof: Vec<u8>,
 
