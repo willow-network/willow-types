@@ -147,6 +147,14 @@ pub enum Transaction {
     /// key already in the current on-chain DID document's authentication set,
     /// so it can swap in fresh public keys for the same DID.
     UpdateDid(UpdateDidTx),
+    /// Indexer claims a subgrove locally — bumps the on-chain `active_indexers`
+    /// list immediately so dashboards reflect "someone is working on this"
+    /// without waiting for the first checkpoint to land. Until this existed,
+    /// chain state lagged the indexer by hours: the same `add_indexer_to_subgrove`
+    /// call only fired on first `SubmitCheckpoint` / `SubmitIndexedData`, so
+    /// every freshly-registered subgrove looked like "Not Started" in the UI
+    /// while the indexer was actually mid-backfill.
+    ClaimSubgroveIndexing(ClaimSubgroveIndexingTx),
 }
 
 /// Transaction to transfer WILL tokens between accounts.
@@ -990,6 +998,28 @@ pub struct ReportContentTx {
     /// DID of the reporter.
     pub reporter_did: String,
     /// Cryptographic signature from the reporter.
+    pub signature: Vec<u8>,
+    /// ID of the public key used for signing.
+    pub public_key_id: String,
+    /// Replay protection nonce.
+    pub nonce: u64,
+}
+
+/// Transaction submitted by an indexer when it locally starts indexing a
+/// subgrove. Bumps the on-chain `active_indexers` list for that subgrove
+/// immediately, before any checkpoint or chain-tip submission lands —
+/// solves the "dashboard shows Not Started but indexer is mid-backfill"
+/// gap.
+///
+/// Idempotent: re-submitting for an already-claimed (subgrove, indexer)
+/// pair is a no-op.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClaimSubgroveIndexingTx {
+    /// Subgrove the indexer is claiming.
+    pub subgrove_id: String,
+    /// Indexer DID that's taking responsibility for indexing.
+    pub indexer_did: String,
+    /// Signature over a canonical message that includes subgrove_id, indexer_did, and nonce.
     pub signature: Vec<u8>,
     /// ID of the public key used for signing.
     pub public_key_id: String,
