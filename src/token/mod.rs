@@ -103,8 +103,15 @@ pub struct StakeInfo {
 pub struct FeeSchedule {
     /// Fee to register a DID (identity).
     pub did_registration: u128,
-    /// Fee to register a subgrove.
+    /// Fee to register a DataStorage or FileStorage subgrove.
     pub subgrove_registration: u128,
+    /// Fee to register a BlockchainIndexing subgrove (heavier on validators
+    /// long-term than DataStorage/FileStorage subgroves).
+    #[serde(default = "default_blockchain_indexing_subgrove_registration")]
+    pub blockchain_indexing_subgrove_registration: u128,
+    /// Fee to register an indexer.
+    #[serde(default = "default_indexer_registration")]
+    pub indexer_registration: u128,
     /// Base cost per transaction (covers consensus overhead).
     pub base_tx_cost: u128,
     /// Cost per byte of data written to storage.
@@ -117,6 +124,14 @@ pub struct FeeSchedule {
     pub max_tx_size_bytes: u64,
     /// Maximum data payload size in bytes (for StoreData/UpdateData).
     pub max_data_payload_bytes: u64,
+}
+
+fn default_blockchain_indexing_subgrove_registration() -> u128 {
+    5_000 * 10u128.pow(TOKEN_DECIMALS as u32)
+}
+
+fn default_indexer_registration() -> u128 {
+    1_000 * 10u128.pow(TOKEN_DECIMALS as u32)
 }
 
 /// Estimated bytes written for a key grant operation.
@@ -139,6 +154,9 @@ impl Default for FeeSchedule {
         Self {
             did_registration: 10u128.pow(TOKEN_DECIMALS as u32), // 1 WILL
             subgrove_registration: 100 * 10u128.pow(TOKEN_DECIMALS as u32), // 100 WILL
+            blockchain_indexing_subgrove_registration:
+                default_blockchain_indexing_subgrove_registration(), // 5_000 WILL
+            indexer_registration: default_indexer_registration(), // 1_000 WILL
             base_tx_cost: 24_000_000_000_000_000,                // 0.024 WILL
             cost_per_byte: 86_400_000_000_000,                   // 0.0000864 WILL
             query_fee: 4_000_000_000_000_000,                    // 0.004 WILL
@@ -498,8 +516,12 @@ pub const FREE_QUERIES_PER_DAY: u32 = 500;
 pub enum FeeType {
     /// DID registration fee.
     DidRegistration,
-    /// Subgrove registration fee.
+    /// Subgrove registration fee (DataStorage / FileStorage modes).
     SubgroveRegistration,
+    /// BlockchainIndexing subgrove registration fee.
+    BlockchainIndexingSubgroveRegistration,
+    /// Indexer registration fee.
+    IndexerRegistration,
     /// Data storage fee based on size.
     DataStorage {
         /// Size in bytes.
