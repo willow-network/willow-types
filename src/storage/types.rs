@@ -103,6 +103,11 @@ pub struct SubgroveRegistration {
     /// Only meaningful for BlockchainIndexing subgroves.
     #[serde(default)]
     pub retention_window: crate::consensus::indexing_transactions::RetentionWindow,
+    /// Blocks held in the chain-tip buffer before submissions fire.
+    /// 0 = head-tier only (subsecond, reorg-supersedable); higher
+    /// values trade latency for reorg safety. Owner-configurable.
+    #[serde(default)]
+    pub confirmation_depth: u32,
     /// Unix timestamp of creation.
     pub created_at: u64,
     /// Unix timestamp of last update.

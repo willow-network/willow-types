@@ -459,6 +459,10 @@ pub struct RegisterSubgroveTx {
     /// ZK-template binding for GkrExecution mode.
     #[serde(default)]
     pub template_config: Option<crate::storage::TemplateSubgroveConfig>,
+    /// Blocks held in the chain-tip buffer before submissions fire.
+    /// 0 = head-tier only (subsecond, reorg-supersedable).
+    #[serde(default)]
+    pub confirmation_depth: u32,
     /// Cryptographic signature from the owner.
     pub signature: Vec<u8>,
     /// ID of the public key used for signing.
