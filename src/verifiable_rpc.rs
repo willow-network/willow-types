@@ -142,6 +142,7 @@ mod tests {
     use crate::consensus::indexing_transactions::{
         GkrCommitmentScheme, GkrHashFunction, GkrPublicInputs,
     };
+    use crate::consensus::CURRENT_PROOF_VERSION;
     use base64::Engine;
 
     fn sample_proof() -> GkrProofData {

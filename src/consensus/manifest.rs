@@ -86,9 +86,11 @@ pub struct EvmDataSource {
 /// set. Manifests targeting multiple programs use one entry per
 /// (cluster, program) pair.
 ///
-/// v1 scope: instruction filtering by 8-byte discriminator. Account-state
-/// filtering (track all accounts owned by program X with discriminator
-/// Y) is a planned schema extension and is not in v1.
+/// v1 scope: instruction filtering by variable-length leading-byte
+/// discriminator (1-byte SPL tag, 4-byte System program tag, 8-byte
+/// Anchor hash, etc.). Account-state filtering (track all accounts
+/// owned by program X with discriminator Y) is a planned schema
+/// extension and is not in v1.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case")]
 pub struct SolanaDataSource {
@@ -103,10 +105,10 @@ pub struct SolanaDataSource {
     /// Slot at which to start indexing this data source. Solana's analogue
     /// of an EVM start block.
     pub start_slot: u64,
-    /// Instruction discriminators to subscribe to. For Anchor programs
-    /// these are `sha256("global:" + method_name)[..8]`; for non-Anchor
-    /// programs callers pass the raw first-byte tag right-padded with
-    /// zeros. Must be non-empty.
+    /// Instruction discriminators to subscribe to. Length is
+    /// program-specific: Anchor uses 8 bytes (`sha256("global:" +
+    /// method_name)[..8]`), native SPL uses 1 byte, System program uses
+    /// 4 bytes. Must be non-empty.
     pub instructions: Vec<InstructionDiscriminator>,
 }
 
@@ -425,27 +427,27 @@ impl<'de> Deserialize<'de> for EventSignature {
     }
 }
 
-/// An 8-byte Solana instruction discriminator, deserialized from the
-/// canonical `0x`-prefixed 16-hex-character string. Stored as raw bytes
-/// so the serialized form is normalized (lowercase hex, exact length) on
-/// every round-trip. For Anchor programs the bytes are
-/// `sha256("global:" + method_name)[..8]`; for non-Anchor programs they
-/// are the raw first-byte tag right-padded with zeros.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct InstructionDiscriminator(pub [u8; 8]);
+/// Solana instruction discriminator — the leading bytes of an instruction
+/// data buffer used to identify the method being invoked. Length is
+/// program-specific: Anchor programs use 8 bytes (`sha256("global:" +
+/// method_name)[..8]`); native SPL programs use 1 byte (e.g. `0x03` for
+/// `Transfer`); the System program uses 4-byte little-endian tags.
+/// Serialized as `0x` + 2N hex characters.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct InstructionDiscriminator(pub Vec<u8>);
 
 impl InstructionDiscriminator {
     pub fn parse(s: &str) -> Result<Self, String> {
         let stripped = s
             .strip_prefix("0x")
             .ok_or_else(|| format!("instruction discriminator must start with 0x: {:?}", s))?;
-        if stripped.len() != 16 {
+        if stripped.is_empty() || stripped.len() % 2 != 0 {
             return Err(format!(
-                "instruction discriminator must be 0x + 16 hex chars (got {} hex chars)",
+                "instruction discriminator must be 0x + an even, non-zero number of hex chars (got {} hex chars)",
                 stripped.len()
             ));
         }
-        let mut bytes = [0u8; 8];
+        let mut bytes = vec![0u8; stripped.len() / 2];
         for (i, byte) in bytes.iter_mut().enumerate() {
             let hi = hex_nibble(stripped.as_bytes()[i * 2])?;
             let lo = hex_nibble(stripped.as_bytes()[i * 2 + 1])?;
@@ -455,7 +457,7 @@ impl InstructionDiscriminator {
     }
 
     pub fn to_canonical_string(&self) -> String {
-        let mut s = String::with_capacity(18);
+        let mut s = String::with_capacity(2 + self.0.len() * 2);
         s.push_str("0x");
         for byte in &self.0 {
             s.push(nibble_hex(byte >> 4));
@@ -483,7 +485,7 @@ impl<'de> Deserialize<'de> for InstructionDiscriminator {
         impl Visitor<'_> for DiscVisitor {
             type Value = InstructionDiscriminator;
             fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                f.write_str("a 0x-prefixed 16-hex-character instruction discriminator")
+                f.write_str("a 0x-prefixed instruction discriminator (even hex chars, >= 2)")
             }
             fn visit_str<E: de::Error>(self, v: &str) -> Result<InstructionDiscriminator, E> {
                 InstructionDiscriminator::parse(v).map_err(de::Error::custom)
@@ -1212,5 +1214,28 @@ mod tests {
     fn instruction_discriminator_uppercase_normalises_to_lower() {
         let disc = InstructionDiscriminator::parse("0xABCDEF0123456789").unwrap();
         assert_eq!(disc.to_canonical_string(), "0xabcdef0123456789");
+    }
+
+    #[test]
+    fn instruction_discriminator_single_byte_spl_tag() {
+        let disc = InstructionDiscriminator::parse("0x03").unwrap();
+        assert_eq!(disc.0, vec![0x03]);
+        assert_eq!(disc.to_canonical_string(), "0x03");
+    }
+
+    #[test]
+    fn instruction_discriminator_four_byte_system_tag() {
+        let disc = InstructionDiscriminator::parse("0x02000000").unwrap();
+        assert_eq!(disc.0, vec![0x02, 0x00, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn instruction_discriminator_rejects_odd_hex() {
+        assert!(InstructionDiscriminator::parse("0x123").is_err());
+    }
+
+    #[test]
+    fn instruction_discriminator_rejects_empty() {
+        assert!(InstructionDiscriminator::parse("0x").is_err());
     }
 }
