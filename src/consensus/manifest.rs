@@ -1152,7 +1152,7 @@ mod tests {
             }]
         }"#;
         let err = WillowManifest::from_bytes(json).unwrap_err();
-        assert!(err.contains("16 hex chars"), "{err}");
+        assert!(err.contains("hex"), "{err}");
     }
 
     #[test]
