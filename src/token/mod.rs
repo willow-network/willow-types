@@ -112,6 +112,9 @@ pub struct FeeSchedule {
     /// Fee to register an indexer.
     #[serde(default = "default_indexer_registration")]
     pub indexer_registration: u128,
+    /// Fee per MCP receipt-batch anchor (`SubmitAnchorTx`).
+    #[serde(default = "default_submit_anchor")]
+    pub submit_anchor: u128,
     /// Base cost per transaction (covers consensus overhead).
     pub base_tx_cost: u128,
     /// Cost per byte of data written to storage.
@@ -132,6 +135,10 @@ fn default_blockchain_indexing_subgrove_registration() -> u128 {
 
 fn default_indexer_registration() -> u128 {
     1_000 * 10u128.pow(TOKEN_DECIMALS as u32)
+}
+
+fn default_submit_anchor() -> u128 {
+    10u128.pow(TOKEN_DECIMALS as u32) / 10
 }
 
 /// Estimated bytes written for a key grant operation.
@@ -157,6 +164,7 @@ impl Default for FeeSchedule {
             blockchain_indexing_subgrove_registration:
                 default_blockchain_indexing_subgrove_registration(), // 5_000 WILL
             indexer_registration: default_indexer_registration(), // 1_000 WILL
+            submit_anchor: default_submit_anchor(),              // 0.1 WILL
             base_tx_cost: 24_000_000_000_000_000,                // 0.024 WILL
             cost_per_byte: 86_400_000_000_000,                   // 0.0000864 WILL
             query_fee: 4_000_000_000_000_000,                    // 0.004 WILL
@@ -543,6 +551,8 @@ pub enum FeeType {
     FileManifestStorage,
     /// Content moderation (block/unblock/report) fee.
     ContentModeration,
+    /// MCP receipt-batch anchor fee.
+    SubmitAnchor,
 }
 
 // ============================================================================
