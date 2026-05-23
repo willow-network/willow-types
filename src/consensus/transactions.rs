@@ -155,6 +155,12 @@ pub enum Transaction {
     /// every freshly-registered subgrove looked like "Not Started" in the UI
     /// while the indexer was actually mid-backfill.
     ClaimSubgroveIndexing(ClaimSubgroveIndexingTx),
+
+    /// Submit an MCP-style receipt-batch anchor. Consensus enforces a strict
+    /// per-DID anchor chain: exactly one genesis anchor per DID, every later
+    /// anchor must extend the previous one by sequence and hash. See
+    /// `crates/consensus/src/willow_cometbft/anchor_transactions.rs`.
+    SubmitAnchor(SubmitAnchorTx),
 }
 
 /// Transaction to transfer WILL tokens between accounts.
@@ -1051,6 +1057,69 @@ pub struct RegisterErc8004AgentTx {
     pub nonce: u64,
 }
 
+/// Upper bounds enforced by the consensus validator on `SubmitAnchorTx`
+/// fields. Keep per-anchor state bounded and validator work per tx capped.
+pub const MAX_ANCHOR_ID_LEN: usize = 128;
+pub const MAX_ANCHOR_RECEIPT_HASHES: usize = 1024;
+pub const MAX_ANCHOR_HASH_HEX_LEN: usize = 128; // sha256 hex = 64; allow headroom
+pub const MAX_ANCHOR_TIMESTAMP_LEN: usize = 64;
+
+/// Sentinel `previous_anchor_hash` value for the genesis anchor of a fresh
+/// receipt log. Matches the in-process sentinel used by the MCP server's
+/// receipt-log module (`mcp/src/receipt-log.ts`).
+pub const ANCHOR_GENESIS_SENTINEL: &str = "genesis";
+
+/// Submit a receipt-batch anchor with chain-enforced per-DID monotonicity.
+///
+/// The chain validator enforces:
+/// * Exactly one anchor with `is_genesis: true` per DID — second attempts
+///   are rejected.
+/// * Every non-genesis anchor's `sequence_range[0]` must equal the previous
+///   anchor's `sequence_range[1] + 1` (no gaps, no overlaps).
+/// * Every non-genesis anchor's `previous_anchor_hash` must equal the
+///   previous anchor's `anchor_hash` (anchor chain integrity).
+/// * The submitted `anchor_hash` must equal the canonical SHA-256 of the
+///   anchor body (recomputed by the validator).
+/// * The signature must verify against `public_key_id` for the submitting
+///   `did`.
+///
+/// State touched: `system/anchor_heads/{did}` (head pointer per DID) and
+/// `system/anchors/{did}/{anchor_id}` (persisted anchor body for verifiers
+/// to walk the chain end-to-end).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubmitAnchorTx {
+    /// DID of the anchor submitter (typically the MCP server's DID).
+    pub did: String,
+    /// Stable anchor identifier. Must be unique per DID.
+    pub anchor_id: String,
+    /// Inclusive [from, to] sequence range covered by this anchor.
+    pub sequence_range: [u64; 2],
+    /// Merkle root over the ordered `receipt_hashes`.
+    pub merkle_root: String,
+    /// Number of receipts covered (must equal `to - from + 1`).
+    pub count: u64,
+    /// Receipt hashes in the order they were anchored. The validator
+    /// recomputes the Merkle root from this list.
+    pub receipt_hashes: Vec<String>,
+    /// ISO-8601 timestamp set by the submitter (advisory; chain time is
+    /// authoritative via block height).
+    pub timestamp: String,
+    /// Hash of the previous anchor for this DID, or `ANCHOR_GENESIS_SENTINEL`
+    /// for the first anchor of a fresh log.
+    pub previous_anchor_hash: String,
+    /// SHA-256 of the canonicalized anchor body. Validator recomputes and
+    /// rejects on mismatch.
+    pub anchor_hash: String,
+    /// True iff this is the first anchor of a fresh log for `did`.
+    pub is_genesis: bool,
+    /// Cryptographic signature over `anchor_hash`.
+    pub signature: Vec<u8>,
+    /// ID of the public key used for signing.
+    pub public_key_id: String,
+    /// Replay protection nonce.
+    pub nonce: u64,
+}
+
 #[cfg(test)]
 mod bincode_tests {
     //! Consensus deserializes `Transaction` via `bincode::deserialize`. The
@@ -1109,5 +1178,29 @@ mod bincode_tests {
         let bytes = bincode::serialize(&tx).expect("bincode serialize");
         let got: RegisterStorageNodeTx = bincode::deserialize(&bytes).expect("bincode deserialize");
         assert_eq!(got.stake_amount, tx.stake_amount);
+    }
+
+    #[test]
+    fn submit_anchor_tx_bincode_round_trip() {
+        let tx = SubmitAnchorTx {
+            did: "did:willow:mcp-server-1".to_string(),
+            anchor_id: "anchor_1_100_abc12345".to_string(),
+            sequence_range: [1, 100],
+            merkle_root: "deadbeef".repeat(8),
+            count: 100,
+            receipt_hashes: vec!["aa".repeat(32), "bb".repeat(32)],
+            timestamp: "2026-05-22T12:00:00Z".to_string(),
+            previous_anchor_hash: ANCHOR_GENESIS_SENTINEL.to_string(),
+            anchor_hash: "cc".repeat(32),
+            is_genesis: true,
+            signature: vec![1, 2, 3],
+            public_key_id: "did:willow:mcp-server-1#key-1".to_string(),
+            nonce: 1,
+        };
+        let bytes = bincode::serialize(&tx).expect("bincode serialize");
+        let got: SubmitAnchorTx = bincode::deserialize(&bytes).expect("bincode deserialize");
+        assert_eq!(got.sequence_range, tx.sequence_range);
+        assert_eq!(got.receipt_hashes.len(), 2);
+        assert!(got.is_genesis);
     }
 }
