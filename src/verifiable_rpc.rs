@@ -10,6 +10,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::consensus::indexing_transactions::GkrProofData;
+use crate::state_proof::StateProof;
 
 /// Response served by `GET /verifiable-rpc/:subgrove_id/:query_key`.
 ///
@@ -89,6 +90,16 @@ pub struct VerifiableRpcResponse {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(with = "crate::serde_helpers::option_bytes_base64")]
     pub completeness_proof: Option<Vec<u8>>,
+
+    /// Verifiable Ethereum state proofs attached to this response.
+    /// Populated for `/verifiable-rpc/eth/state` and
+    /// `/verifiable-rpc/eth/call` flows; empty for the legacy
+    /// subgrove-query path. Each entry binds account (and optional
+    /// storage slot) values to the block's `state_root` via MPT
+    /// inclusion. SDKs cross-check each `state_root` against their
+    /// own light-client-verified header before trusting the values.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub state_proofs: Vec<StateProof>,
 
     /// When the indexer generated this response (unix seconds). Used by the
     /// client to enforce a freshness bound.
@@ -176,6 +187,7 @@ mod tests {
             grovedb_proof: vec![0x55; 128],
             gkr_proofs: vec![proof.clone()],
             completeness_proof: None,
+            state_proofs: vec![],
             served_at_unix_secs: 1_700_000_000,
         };
 
@@ -204,6 +216,107 @@ mod tests {
             parsed_proof.verification_key_hash,
             proof.verification_key_hash
         );
+    }
+
+    #[test]
+    fn response_carries_state_proofs_when_populated() {
+        use crate::consensus::indexing_transactions::data_updates::MptProof;
+        use crate::state_proof::{AccountState, StateProof, StorageSlotProof};
+
+        let state_proof = StateProof {
+            address: [0xaau8; 20],
+            block_number: 19_000_000,
+            block_hash: [0xbbu8; 32],
+            state_root: [0xccu8; 32],
+            account_proof: MptProof {
+                key: vec![0x01u8; 32],
+                value: vec![0x02u8; 64],
+                proof_nodes: vec![vec![0x03u8; 96]],
+            },
+            account_state: AccountState {
+                nonce: 7,
+                balance: [0x04u8; 32],
+                storage_hash: [0x05u8; 32],
+                code_hash: [0x06u8; 32],
+            },
+            storage_proofs: vec![StorageSlotProof {
+                slot: [0x07u8; 32],
+                value: [0x08u8; 32],
+                proof: MptProof {
+                    key: vec![0x09u8; 32],
+                    value: vec![0x0au8; 32],
+                    proof_nodes: vec![vec![0x0bu8; 96]],
+                },
+            }],
+        };
+
+        let resp = VerifiableRpcResponse {
+            subgrove_id: "eth-state".into(),
+            key: vec![],
+            answer: vec![],
+            answer_exists: true,
+            checkpoint_id: [0; 32],
+            state_root: state_proof.state_root,
+            block_range: (state_proof.block_number, state_proof.block_number),
+            grovedb_proof: vec![],
+            gkr_proofs: vec![],
+            completeness_proof: None,
+            state_proofs: vec![state_proof.clone()],
+            served_at_unix_secs: 1_700_000_000,
+        };
+
+        let json = serde_json::to_string(&resp).expect("serialize");
+        let parsed: VerifiableRpcResponse = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(parsed.state_proofs.len(), 1);
+        assert_eq!(parsed.state_proofs[0].address, state_proof.address);
+        assert_eq!(parsed.state_proofs[0].state_root, state_proof.state_root);
+        assert_eq!(
+            parsed.state_proofs[0].account_state,
+            state_proof.account_state
+        );
+        assert_eq!(parsed.state_proofs[0].storage_proofs.len(), 1);
+
+        // Also confirm we elide the field when empty — gkr-only callers
+        // shouldn't see a stray `"state_proofs":[]` in their wire.
+        let resp_empty = VerifiableRpcResponse {
+            state_proofs: vec![],
+            ..resp
+        };
+        let json_empty = serde_json::to_string(&resp_empty).expect("serialize");
+        assert!(
+            !json_empty.contains("state_proofs"),
+            "empty state_proofs should be skipped on the wire, got: {}",
+            json_empty
+        );
+    }
+
+    #[test]
+    fn response_accepts_legacy_json_without_state_proofs() {
+        // Wire-format forward compatibility: a payload from an indexer
+        // built before `state_proofs` existed must deserialize cleanly
+        // and yield an empty Vec, not a parse error.
+        let proof = sample_proof();
+        let resp = VerifiableRpcResponse {
+            subgrove_id: "legacy".into(),
+            key: vec![1, 2, 3],
+            answer: vec![4, 5, 6],
+            answer_exists: true,
+            checkpoint_id: [9; 32],
+            state_root: proof.public_inputs.output_root,
+            block_range: proof.public_inputs.block_range,
+            grovedb_proof: vec![0x77; 32],
+            gkr_proofs: vec![proof],
+            completeness_proof: None,
+            state_proofs: vec![],
+            served_at_unix_secs: 1_700_000_001,
+        };
+        // Serialize, then strip the absent state_proofs key from the
+        // JSON (it should already be absent due to skip_serializing_if)
+        // and verify the result still round-trips.
+        let json = serde_json::to_string(&resp).expect("serialize");
+        assert!(!json.contains("state_proofs"));
+        let parsed: VerifiableRpcResponse = serde_json::from_str(&json).expect("deserialize");
+        assert!(parsed.state_proofs.is_empty());
     }
 
     #[test]
