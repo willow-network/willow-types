@@ -396,16 +396,9 @@ mod tests {
         );
     }
 
-    /// The TypeScript SDK (and therefore the web explorer) cannot losslessly
-    /// represent u128 values above 2^53 as JSON numbers, so it sends
-    /// `reward_per_epoch` and `min_indexer_stake` as JSON strings on the
-    /// wire. Deserialization must accept both JSON numbers (Rust SDK) and
-    /// JSON strings (TS SDK); otherwise every BlockchainIndexing subgrove
-    /// registration from the web explorer fails at CheckTx with
-    /// "invalid number at line 1 column …".
-    ///
-    /// Regression: confirmed on 2026-04-16 that the explorer was sending
-    /// `"reward_per_epoch":"100000000000000000"` and CheckTx rejected it.
+    /// Deserialization must accept u128 fields as both JSON numbers (Rust
+    /// SDK) and JSON strings (TS SDK), since JS f64 loses precision above
+    /// 2^53.
     #[test]
     fn indexer_config_accepts_string_u128_fields() {
         let json_from_ts_sdk = r#"{
@@ -416,11 +409,8 @@ mod tests {
             "min_indexer_stake": "100000000000000000000000"
         }"#;
 
-        let cfg: IndexerConfig = serde_json::from_str(json_from_ts_sdk).expect(
-            "IndexerConfig must accept u128 fields as JSON strings — this is \
-             the wire format the TypeScript SDK produces because JS numbers \
-             cannot represent values above 2^53 without precision loss.",
-        );
+        let cfg: IndexerConfig = serde_json::from_str(json_from_ts_sdk)
+            .expect("IndexerConfig must accept u128 fields as JSON strings");
         assert_eq!(cfg.reward_per_epoch, 100_000_000_000_000_000);
         assert_eq!(cfg.min_indexer_stake, 100_000_000_000_000_000_000_000);
     }

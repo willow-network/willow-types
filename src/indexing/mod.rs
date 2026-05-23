@@ -10,7 +10,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 // ---------------------------------------------------------------------------
-// Schema types (from src/indexing/schema.rs)
+// Schema types
 // ---------------------------------------------------------------------------
 
 /// Schema definition for a subgrove (indexed data collection).
@@ -198,7 +198,7 @@ impl std::fmt::Display for InlineIndexType {
 }
 
 // ---------------------------------------------------------------------------
-// Index types (from src/indexing/index_types.rs)
+// Index types
 // ---------------------------------------------------------------------------
 
 /// Types of indexes supported by the Willow indexing system.

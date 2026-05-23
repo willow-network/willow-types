@@ -1,24 +1,8 @@
-//! Shared serde helpers for tolerating wire-format variance across SDKs.
+//! Shared serde helpers for wire-format compatibility across SDKs.
 //!
-//! The canonical Rust serialization for a `u128` is a JSON number, and
-//! `serde_json` handles that losslessly. The TypeScript SDK cannot: JS
-//! numbers are IEEE-754 f64s, so any value above 2 ^ 53 (roughly 9 × 10^15)
-//! loses precision the moment it's parsed. `JSON.stringify(10n ** 23n)`
-//! produces `"100000000000000000000000"` in practice only if the caller
-//! formatted it as a decimal string themselves, and that is exactly what
-//! the willow-typescript SDK does for `u128` fields.
-//!
-//! So on the wire a `reward_per_epoch` (and peers) can arrive as *either*
-//! a JSON number (Rust SDK, older clients, indexer-node) or a JSON string
-//! (TS SDK, web explorer, anything talking to the API from JS). Before
-//! this module existed, the string form was rejected at CheckTx with the
-//! extremely unhelpful `invalid number` parser error — every
-//! BlockchainIndexing subgrove registration from the web explorer failed
-//! before reaching a block.
-//!
-//! `u128_flexible` is the compatibility shim: it accepts *either* form on
-//! the way in and preserves the existing Rust output shape (JSON number)
-//! on the way out, so Rust-to-Rust consumers see no behavior change.
+//! `u128_flexible` accepts a `u128` from either a JSON number or a JSON
+//! string and serializes back as a number. The string form is required by
+//! JavaScript clients (JS numbers are f64 and lose precision above 2^53).
 
 /// Deserialize a `u128` from either a JSON number or a JSON string.
 /// Serialize a `u128` as a JSON number (matches the default Rust behavior).
@@ -46,12 +30,9 @@ pub mod u128_flexible {
             return u128::deserialize(deserializer);
         }
 
-        // `RawValue` gives us the original JSON bytes for the value
-        // without passing through `serde_json::Number` (which, absent
-        // the `arbitrary_precision` feature, routes large integers
-        // through f64 and silently loses precision above 2^53). From
-        // the raw bytes we can dispatch on string-vs-number ourselves
-        // and parse digits losslessly into a u128.
+        // `RawValue` gives the original JSON bytes without going through
+        // `serde_json::Number` (which f64-routes large integers without
+        // `arbitrary_precision`). We dispatch on string-vs-number ourselves.
         let raw: &RawValue = <&RawValue>::deserialize(deserializer)?;
         let s = raw.get().trim();
 
@@ -286,10 +267,8 @@ mod tests {
         assert!(err.to_string().contains("invalid u128 decimal string"));
     }
 
-    /// The real failure mode: a JSON integer too large to fit in an f64
-    /// losslessly (10^23, what the web explorer sends for
-    /// `min_indexer_stake`) must parse to the exact u128 value — not the
-    /// f64-rounded one (99999999999999991611392).
+    /// A JSON integer too large to fit in an f64 losslessly (10^23) must
+    /// parse to the exact u128 value, not the f64-rounded one.
     #[test]
     fn preserves_precision_for_large_json_numbers() {
         let got: Wrap = serde_json::from_str(r#"{"v": 100000000000000000000000}"#).unwrap();
@@ -297,10 +276,7 @@ mod tests {
     }
 
     /// Binary formats must round-trip through `u128_flexible` without
-    /// hitting the JSON-only `RawValue` path. Without this guard, wiring
-    /// the helper onto any field on a struct that consensus
-    /// bincode-deserializes (e.g. `Transaction`) would deadlock the chain
-    /// at the first such tx.
+    /// hitting the JSON-only `RawValue` path.
     #[test]
     fn bincode_round_trip() {
         let wrap = Wrap {

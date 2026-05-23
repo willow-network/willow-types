@@ -137,23 +137,15 @@ pub enum Transaction {
     /// Report content for governance review (any DID).
     ReportContent(ReportContentTx),
 
-    // ⚠️ Append-only beyond this point. Bincode encodes enum variant tags by
-    // declaration order, and the tx bytes for every block on the live chain
-    // are immutable. Inserting a variant earlier in the enum shifts every
-    // subsequent variant's tag and silently breaks historical tx decoding
-    // (`/tx/decode`, block explorer, anything that round-trips bincode
-    // Transactions). Always add new variants at the end.
-    /// Update (rotate) an existing DID document. The tx must be signed by a
-    /// key already in the current on-chain DID document's authentication set,
-    /// so it can swap in fresh public keys for the same DID.
+    // ⚠️ Append-only beyond this point. Bincode encodes variant tags by
+    // declaration order; inserting earlier shifts every subsequent tag and
+    // breaks historical tx decoding. Always add new variants at the end.
+    /// Rotate the keys on an existing DID document. Signed by a key already
+    /// in the current on-chain DID document's authentication set.
     UpdateDid(UpdateDidTx),
-    /// Indexer claims a subgrove locally — bumps the on-chain `active_indexers`
-    /// list immediately so dashboards reflect "someone is working on this"
-    /// without waiting for the first checkpoint to land. Until this existed,
-    /// chain state lagged the indexer by hours: the same `add_indexer_to_subgrove`
-    /// call only fired on first `SubmitCheckpoint` / `SubmitIndexedData`, so
-    /// every freshly-registered subgrove looked like "Not Started" in the UI
-    /// while the indexer was actually mid-backfill.
+    /// Indexer claims a subgrove — adds the indexer DID to the subgrove's
+    /// `active_indexers` list immediately, before any checkpoint or data
+    /// submission.
     ClaimSubgroveIndexing(ClaimSubgroveIndexingTx),
 
     /// Submit an MCP-style receipt-batch anchor. Consensus enforces a strict
