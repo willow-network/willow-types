@@ -1,16 +1,12 @@
 //! Shared serde helpers for wire-format compatibility across SDKs.
-//!
-//! `u128_flexible` accepts a `u128` from either a JSON number or a JSON
-//! string and serializes back as a number. The string form is required by
-//! JavaScript clients (JS numbers are f64 and lose precision above 2^53).
 
-/// Deserialize a `u128` from either a JSON number or a JSON string.
-/// Serialize a `u128` as a JSON number (matches the default Rust behavior).
+/// Deserialize a `u128` from either a JSON number or a JSON string;
+/// serialize as a JSON number. The string form is required by JavaScript
+/// clients (JS numbers are f64 and lose precision above 2^53).
 ///
-/// Bincode-safe: dispatches on `is_human_readable()` so structs that round-trip
-/// through `bincode` (e.g. `Transaction`, which consensus decodes via
-/// `bincode::deserialize`) keep working — the JSON-only `RawValue` path is
-/// only entered for human-readable formats.
+/// Bincode-safe: dispatches on `is_human_readable()` so structs that
+/// round-trip through `bincode` keep working — the JSON-only `RawValue`
+/// path is only entered for human-readable formats.
 pub mod u128_flexible {
     use serde::de::Error as DeError;
     use serde::{Deserialize, Deserializer, Serializer};

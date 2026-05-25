@@ -211,6 +211,7 @@ impl Transaction {
             Transaction::ReportContent(_) => "report_content",
             Transaction::UpdateDid(_) => "update_did",
             Transaction::ClaimSubgroveIndexing(_) => "claim_subgrove_indexing",
+            Transaction::SubmitAnchor(_) => "submit_anchor",
         }
     }
 }
