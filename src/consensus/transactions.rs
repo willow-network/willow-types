@@ -155,6 +155,66 @@ pub enum Transaction {
     SubmitAnchor(SubmitAnchorTx),
 }
 
+impl Transaction {
+    /// Stable kebab-style discriminator for metrics / logging.
+    /// Add a new arm here whenever a variant is added — the match is
+    /// exhaustive so the compiler enforces this.
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            Transaction::Transfer(_) => "transfer",
+            Transaction::Stake(_) => "stake",
+            Transaction::Unstake(_) => "unstake",
+            Transaction::RegisterSubgrove(_) => "register_subgrove",
+            Transaction::DeregisterSubgrove(_) => "deregister_subgrove",
+            Transaction::FundSubgrove(_) => "fund_subgrove",
+            Transaction::UpdateSubgroveReadPricing(_) => "update_read_pricing",
+            Transaction::UpdateSubgroveFreeReaders(_) => "update_free_readers",
+            Transaction::RegisterDid(_) => "register_did",
+            Transaction::StoreData(_) => "store_data",
+            Transaction::UpdateData(_) => "update_data",
+            Transaction::DeleteData(_) => "delete_data",
+            Transaction::RegisterIndexer(_) => "register_indexer",
+            Transaction::IndexedBlockSubmission(_) => "indexed_block_submission",
+            Transaction::SlashIndexer(_) => "slash_indexer",
+            Transaction::CollectQueryFees(_) => "collect_query_fees",
+            Transaction::HistoricalCheckpoint(_) => "historical_checkpoint",
+            Transaction::AvailabilityProof(_) => "availability_proof",
+            Transaction::WithdrawHistoricalAvailability(_) => "withdraw_historical_availability",
+            Transaction::UpdateIndexerProfile(_) => "update_indexer_profile",
+            Transaction::CreateOperatorEntity(_) => "create_operator_entity",
+            Transaction::LinkIndexerToEntity(_) => "link_indexer_to_entity",
+            Transaction::UnlinkIndexerFromEntity(_) => "unlink_indexer_from_entity",
+            Transaction::RecordFundingSource(_) => "record_funding_source",
+            Transaction::OpenBisectionDispute(_) => "open_bisection_dispute",
+            Transaction::BisectionStep(_) => "bisection_step",
+            Transaction::AdjudicateBisection(_) => "adjudicate_bisection",
+            Transaction::SetDisputeAvailability(_) => "set_dispute_availability",
+            Transaction::OpenCommitmentDispute(_) => "open_commitment_dispute",
+            Transaction::RespondCommitmentDispute(_) => "respond_commitment_dispute",
+            Transaction::AddApprovedEnclave(_) => "add_approved_enclave",
+            Transaction::RemoveApprovedEnclave(_) => "remove_approved_enclave",
+            Transaction::AddEnclaveAdmin(_) => "add_enclave_admin",
+            Transaction::RemoveEnclaveAdmin(_) => "remove_enclave_admin",
+            Transaction::GrantSubgroveKey(_) => "grant_subgrove_key",
+            Transaction::RevokeSubgroveKey(_) => "revoke_subgrove_key",
+            Transaction::RotateSubgroveKey(_) => "rotate_subgrove_key",
+            Transaction::PrivateSubgroveCommitment(_) => "private_subgrove_commitment",
+            Transaction::LinkEthAddress(_) => "link_eth_address",
+            Transaction::RegisterErc8004Agent(_) => "register_erc8004_agent",
+            Transaction::StoreFileManifest(_) => "store_file_manifest",
+            Transaction::DeleteFileManifest(_) => "delete_file_manifest",
+            Transaction::RegisterStorageNode(_) => "register_storage_node",
+            Transaction::StorageAvailabilityProof(_) => "storage_availability_proof",
+            Transaction::UnregisterStorageNode(_) => "unregister_storage_node",
+            Transaction::BlockContentHash(_) => "block_content_hash",
+            Transaction::UnblockContentHash(_) => "unblock_content_hash",
+            Transaction::ReportContent(_) => "report_content",
+            Transaction::UpdateDid(_) => "update_did",
+            Transaction::ClaimSubgroveIndexing(_) => "claim_subgrove_indexing",
+        }
+    }
+}
+
 /// Transaction to transfer WILL tokens between accounts.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransferTx {
