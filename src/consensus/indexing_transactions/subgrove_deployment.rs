@@ -63,8 +63,7 @@ pub enum SubgroveMode {
         retention_window: RetentionWindow,
         /// Optional commitments to the subgrove's log and transaction filters,
         /// binding completeness proofs to the filters the subgrove was
-        /// registered with. See
-        /// `docs/todo/proposal-completeness-hand-written-circuit.md`.
+        /// registered with.
         /// `None` = subgrove does not opt into completeness proofs (backward-
         /// compatible with existing registrations).
         #[serde(default)]
@@ -72,7 +71,6 @@ pub enum SubgroveMode {
         /// Trust model for historical (pre-Capella) Ethereum block
         /// authentication. Defaults to `BftEquivalent`; opt into
         /// `CanonizedAccumulator` to index pre-April-2023 blocks.
-        /// See `docs/research/portal-network-integration.md`.
         #[serde(default)]
         historical_auth_mode: HistoricalAuthMode,
     },
@@ -86,7 +84,6 @@ pub enum SubgroveMode {
 /// pre-merge / `historical_roots` accumulators shipped with Willow.
 /// Default is `BftEquivalent` — preserves the protocol's strong trust
 /// guarantee for any subgrove that doesn't need pre-Capella history.
-/// See `docs/research/portal-network-integration.md`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum HistoricalAuthMode {
     /// Only accept block authentications that chain to a current beacon

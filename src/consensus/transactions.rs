@@ -150,8 +150,7 @@ pub enum Transaction {
 
     /// Submit an MCP-style receipt-batch anchor. Consensus enforces a strict
     /// per-DID anchor chain: exactly one genesis anchor per DID, every later
-    /// anchor must extend the previous one by sequence and hash. See
-    /// `crates/consensus/src/willow_cometbft/anchor_transactions.rs`.
+    /// anchor must extend the previous one by sequence and hash.
     SubmitAnchor(SubmitAnchorTx),
 }
 

@@ -13,9 +13,6 @@
 //! - [`VerifiedCallResult`] — bundle for `eth_call`: ABI-encoded
 //!   return data + one [`StateProof`] per account REVM touched during
 //!   execution.
-//!
-//! See `docs/VERIFIABLE_RPC.md` for the end-to-end design and trust
-//! model.
 
 use serde::{Deserialize, Serialize};
 

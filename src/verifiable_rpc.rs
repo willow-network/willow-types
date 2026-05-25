@@ -4,8 +4,6 @@
 //! verifies locally without any blockchain round-trip. The types in this module
 //! define the on-the-wire shape of that response so both the indexer-node HTTP
 //! handler and any SDK decode into the same struct.
-//!
-//! See `docs/VERIFIABLE_RPC.md` for the end-to-end design.
 
 use serde::{Deserialize, Serialize};
 
