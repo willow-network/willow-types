@@ -1,6 +1,6 @@
 # willow-types
 
-Shared data types for the [Willow](https://github.com/willow-network/willow) protocol — the wire-format definitions every Willow client (SDKs, indexers, third-party tools) needs to construct valid transactions, parse responses, and verify proofs.
+Shared data types for the Willow protocol — the wire-format definitions every Willow client (SDKs, indexers, third-party tools) needs to construct valid transactions, parse responses, and verify proofs.
 
 ## Installation
 
