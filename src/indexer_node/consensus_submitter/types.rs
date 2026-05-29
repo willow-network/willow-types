@@ -1,5 +1,5 @@
 use crate::consensus::indexing_transactions::{
-    EventInclusionProof, GkrProofData, TransactionInclusionProof,
+    BlockEventProofs, GkrProofData, TransactionInclusionProof,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -418,7 +418,7 @@ pub struct EvmIndexedBlockSubmissionTx {
     /// Verified against `block_header.receipts_root`.
     /// Included when the subgrove requires event inclusion verification.
     #[serde(default)]
-    pub event_proofs: Vec<EventInclusionProof>,
+    pub event_proofs: BlockEventProofs,
     /// MPT proofs proving each tx exists in the block's transactions trie.
     /// Required alongside `completeness_proof` for tx authentication.
     #[serde(default)]

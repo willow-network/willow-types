@@ -64,7 +64,7 @@ pub enum CompressionType {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateProofs {
     /// Proofs that events exist in the specified Ethereum blocks.
-    pub event_proofs: Vec<EventInclusionProof>,
+    pub event_proofs: BlockEventProofs,
     /// Proof of correct transformation execution.
     pub execution_proof: ExecutionProof,
 }
@@ -126,6 +126,64 @@ pub struct TransactionInclusionProof {
     pub raw_rlp: Vec<u8>,
     /// Merkle Patricia Trie proof of tx inclusion at `tx_index`.
     pub mpt_proof: MptProof,
+}
+
+/// Per-transaction receipt inclusion proof for batch event submissions.
+///
+/// Stored once per transaction and shared by all of its logs, so a busy block
+/// carries each receipt + MPT proof once instead of once per log.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReceiptInclusionProof {
+    /// Index of the transaction within the block.
+    pub tx_index: u64,
+    /// Hash of the transaction.
+    pub tx_hash: [u8; 32],
+    /// RLP-encoded transaction receipt.
+    pub receipt: Vec<u8>,
+    /// MPT proof of receipt inclusion at `tx_index` in the receipts trie.
+    pub receipt_proof: MptProof,
+}
+
+/// A single log in a batch event submission, referencing its receipt by
+/// `tx_index` (see [`ReceiptInclusionProof`]) instead of embedding a copy.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NormalizedEventProof {
+    /// Index of the transaction emitting the event; matches a
+    /// `ReceiptInclusionProof::tx_index`.
+    pub tx_index: u64,
+    /// Index of the log within the receipt.
+    pub log_index: u64,
+    /// Address of the contract that emitted the event.
+    pub contract_address: [u8; 20],
+    /// Event topics (first topic is usually the event signature).
+    pub topics: Vec<[u8; 32]>,
+    /// ABI-encoded event data.
+    pub data: Vec<u8>,
+}
+
+/// Normalized per-block event proofs: each receipt + MPT proof is carried once
+/// per transaction, and every log references its transaction by `tx_index`.
+/// Used by batch submissions (completeness + transformation).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct BlockEventProofs {
+    /// One receipt + MPT proof per transaction that emitted matched logs.
+    pub receipt_proofs: Vec<ReceiptInclusionProof>,
+    /// One entry per event, referencing its receipt via `tx_index`.
+    pub events: Vec<NormalizedEventProof>,
+}
+
+impl BlockEventProofs {
+    /// True when there are no events to verify. A submission with zero
+    /// matched logs carries an empty `events` vec (and typically an empty
+    /// `receipt_proofs` vec).
+    pub fn is_empty(&self) -> bool {
+        self.events.is_empty()
+    }
+
+    /// Number of events (logs) carried, one per [`NormalizedEventProof`].
+    pub fn len(&self) -> usize {
+        self.events.len()
+    }
 }
 
 /// Proof that transformation logic was executed correctly.
