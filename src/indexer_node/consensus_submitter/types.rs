@@ -432,6 +432,12 @@ pub struct EvmIndexedBlockSubmissionTx {
     /// in the block.
     #[serde(default)]
     pub block_transactions_bincode: Vec<u8>,
+    /// Canonical RLP-encoded receipt of every transaction in the block, in
+    /// `tx_index` order (`block_receipts_rlp[i]` is tx `i`'s receipt). Lets
+    /// the validator rebuild `receipts_root` and prove the submitted log set
+    /// is the block's COMPLETE set, not a censored subset.
+    #[serde(default)]
+    pub block_receipts_rlp: Vec<Vec<u8>>,
     /// Serialized `ChunkedBlockCompletenessProof` (from `willow-indexing`'s
     /// completeness_prover). Carries one GKR proof per fixed-size log /
     /// tx chunk, so blocks with more than a single circuit batch's worth
