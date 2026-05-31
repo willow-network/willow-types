@@ -473,6 +473,28 @@ pub struct EvmIndexedBlockSubmissionTx {
     #[serde(default)]
     pub warp_proof:
         Option<crate::consensus::indexing_transactions::warp_proof_types::WarpProofData>,
+    /// Optional WARP-folded GF2 receipts-trie proof.
+    ///
+    /// When present, this is a single folded artifact (`docs/research/
+    /// warp-gf2-pesat-sketch.md`) aggregating the per-chunk GF2 GKR
+    /// proofs produced by `prove_receipts_root` over the block's
+    /// receipts MPT. The fold compresses the otherwise-untenable
+    /// 28–50 MB of raw per-chunk Orion proofs into ~few hundred KB,
+    /// so the consensus tx can carry the proof on-wire.
+    ///
+    /// When the subgrove opts into cryptographic completeness mode
+    /// (`SubgroveConfig::cryptographic_completeness == true`),
+    /// validators verify this proof against the trusted
+    /// `block_header.receipts_root`, replacing the native-Rust trie
+    /// reconstruction from #486 for that subgrove's submissions.
+    /// Browser-side: the SDK's `verify_full_completeness` checks the
+    /// same fold + re-runs the Fiat-Shamir transcript natively.
+    ///
+    /// When `None`, the validator falls back to #486's validator-
+    /// trust path (native trie reconstruction). Subgroves that don't
+    /// opt into cryptographic mode always pass `None`.
+    #[serde(default)]
+    pub receipts_root_proof: Option<Vec<u8>>,
 }
 
 /// Solana-family chain-tip submission.
