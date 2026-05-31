@@ -108,6 +108,27 @@ pub struct SubgroveRegistration {
     /// values trade latency for reorg safety. Owner-configurable.
     #[serde(default)]
     pub confirmation_depth: u32,
+    /// Opt-in flag for browser-trustless completeness via the GF2
+    /// receipts-trie WARP-folded proof carried on
+    /// `EvmIndexedBlockSubmissionTx.receipts_root_proof`.
+    ///
+    /// When `true`, the indexer is expected to prove + fold + ship
+    /// the receipts-trie proof for every block submission, and
+    /// validators verify it against the trusted `receipts_root`
+    /// (replacing #486's native-trie reconstruction for this
+    /// subgrove). When `false` (the default), submissions take the
+    /// validator-trust path from #486 unchanged — the indexer can
+    /// leave `receipts_root_proof = None` and validators rebuild
+    /// the trie natively.
+    ///
+    /// Opt-in is a deliberate choice because the per-block prove
+    /// cost (~5-10 s after the compile cache from #498) is meaningful;
+    /// subgroves that prioritize latency over browser-trustless
+    /// soundness stay on the cheap path. See
+    /// `docs/todo/proposal-receipts-trie-completeness.md` for the
+    /// soundness story.
+    #[serde(default)]
+    pub cryptographic_completeness: bool,
     /// Unix timestamp of creation.
     pub created_at: u64,
     /// Unix timestamp of last update.
