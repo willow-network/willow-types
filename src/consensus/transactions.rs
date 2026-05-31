@@ -152,6 +152,24 @@ pub enum Transaction {
     /// per-DID anchor chain: exactly one genesis anchor per DID, every later
     /// anchor must extend the previous one by sequence and hash.
     SubmitAnchor(SubmitAnchorTx),
+
+    /// Bootstrap the in-consensus Ethereum sync-committee light client from a
+    /// trusted weak-subjectivity checkpoint. Admin-gated, one-time per network;
+    /// see `crates/consensus/src/willow_cometbft/light_client_transactions.rs`.
+    SubmitLightClientBootstrap(SubmitLightClientBootstrapTx),
+
+    /// Advance the in-consensus light client's beacon anchors from a
+    /// sync-committee-signed beacon update. Permissionless + self-authenticating
+    /// (validity = the BLS signature + branch proofs verify against the tracked
+    /// committee). See `light_client_transactions.rs`.
+    SubmitBeaconUpdate(SubmitBeaconUpdateTx),
+
+    /// Promote an already-stored block update to a higher authentication status
+    /// by re-verifying its carried historical proof against the now-advanced
+    /// in-consensus anchor. Permissionless + self-authenticating (validity = the
+    /// proof chains the block's *stored* roots into a tracked anchor's beacon
+    /// state). See `indexed_data_handler::promotion`.
+    PromoteBlock(PromoteBlockTx),
 }
 
 impl Transaction {
@@ -211,6 +229,9 @@ impl Transaction {
             Transaction::UpdateDid(_) => "update_did",
             Transaction::ClaimSubgroveIndexing(_) => "claim_subgrove_indexing",
             Transaction::SubmitAnchor(_) => "submit_anchor",
+            Transaction::SubmitLightClientBootstrap(_) => "submit_light_client_bootstrap",
+            Transaction::SubmitBeaconUpdate(_) => "submit_beacon_update",
+            Transaction::PromoteBlock(_) => "promote_block",
         }
     }
 }
@@ -1170,6 +1191,117 @@ pub struct SubmitAnchorTx {
     pub public_key_id: String,
     /// Replay protection nonce.
     pub nonce: u64,
+}
+
+/// Seeds the in-consensus Ethereum sync-committee light client (Phase 2B) from a
+/// trusted beacon checkpoint. Admin-gated: the submitter must be an approved
+/// governance admin (the `EnclaveRegistry` admin set). The carried committee is
+/// authenticated against `checkpoint_state_root` via its SSZ Merkle branch
+/// before being stored; the checkpoint root itself is the weak-subjectivity
+/// trust input.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubmitLightClientBootstrapTx {
+    /// DID of the submitting governance admin.
+    pub admin_did: String,
+    /// The 512 current sync-committee pubkeys, flat (512 * 48 bytes).
+    pub committee_pubkeys: Vec<u8>,
+    /// The committee's 48-byte BLS aggregate pubkey.
+    pub aggregate_pubkey: Vec<u8>,
+    /// `current_sync_committee_branch`: one 32-byte sibling per state-tree level.
+    pub committee_branch: Vec<[u8; 32]>,
+    /// Beacon state root of the trusted checkpoint (the trust anchor).
+    pub checkpoint_state_root: [u8; 32],
+    /// Beacon slot of the checkpoint (selects the fork → committee gindex, and
+    /// the sync-committee period).
+    pub checkpoint_slot: u64,
+    /// Eth2 genesis validators root (fixes the sync-committee signing domain).
+    pub genesis_validators_root: [u8; 32],
+    /// Signature over the canonical signing message by `admin_did`.
+    pub signature: Vec<u8>,
+    /// ID of the public key used for signing.
+    pub public_key_id: String,
+    /// Replay protection nonce.
+    pub nonce: u64,
+}
+
+impl SubmitLightClientBootstrapTx {
+    /// Canonical message the `admin_did` signs. Binds the checkpoint root, its
+    /// fork-selecting slot, the genesis validators root, and the nonce. CheckTx
+    /// and the consensus handler MUST compute this identically.
+    pub fn signing_message(&self) -> String {
+        format!(
+            "WILLOW_LIGHT_CLIENT_BOOTSTRAP_V1:{}:{}:{}:{}:{}",
+            self.admin_did,
+            hex::encode(self.checkpoint_state_root),
+            self.checkpoint_slot,
+            hex::encode(self.genesis_validators_root),
+            self.nonce
+        )
+    }
+}
+
+/// A finalized `BeaconBlockHeader` + its `finality_branch`, carried by a
+/// finality update so the validator can advance its finalized anchor. The
+/// branch proves this header is `finalized_checkpoint.root` in the attested
+/// beacon state.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FinalizedHeader {
+    pub slot: u64,
+    pub proposer_index: u64,
+    pub parent_root: [u8; 32],
+    pub state_root: [u8; 32],
+    pub body_root: [u8; 32],
+    /// `finality_branch`: one 32-byte sibling per state-tree level.
+    pub finality_branch: Vec<[u8; 32]>,
+}
+
+/// Next sync committee + its SSZ branch, carried by a periodic LightClientUpdate.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NextSyncCommittee {
+    /// 512 BLS pubkeys, flat (512 × 48 bytes).
+    pub pubkeys: Vec<u8>,
+    pub aggregate_pubkey: Vec<u8>,
+    /// `next_sync_committee_branch`: one 32-byte sibling per state-tree level.
+    pub branch: Vec<[u8; 32]>,
+}
+
+/// Advances the in-consensus light client's beacon anchors from a
+/// sync-committee-signed beacon update (`optimistic_update` / `finality_update`).
+/// Permissionless and self-authenticating: validity is the sync-committee BLS
+/// signature over the attested header verifying against the tracked committee
+/// (+ the finality branch when present). The validator then advances the head
+/// (and, with finality, finalized) anchor monotonically. No signer / nonce.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubmitBeaconUpdateTx {
+    // Attested `BeaconBlockHeader` (the value the sync committee signed).
+    pub attested_slot: u64,
+    pub attested_proposer_index: u64,
+    pub attested_parent_root: [u8; 32],
+    pub attested_state_root: [u8; 32],
+    pub attested_body_root: [u8; 32],
+    // Sync aggregate: `Bitvector[512]` participation (64 bytes) + 96-byte sig.
+    pub sync_committee_bits: Vec<u8>,
+    pub sync_committee_signature: Vec<u8>,
+    /// Slot the aggregate was produced in (selects the signing fork version).
+    pub signature_slot: u64,
+    /// Present for finality updates: advances the finalized anchor.
+    pub finalized: Option<FinalizedHeader>,
+    /// Periodic LightClientUpdate: next period's committee + branch, for rotation.
+    #[serde(default)]
+    pub next_sync_committee: Option<NextSyncCommittee>,
+}
+
+/// Promotes an already-stored block update to a higher [`BlockAuthStatus`] by
+/// re-verifying a `HistoricalHeaderProof` against the now-advanced in-consensus
+/// anchor. Permissionless + self-authenticating: validity is the proof chaining
+/// the block's *stored* receipts/transactions roots into a tracked anchor's
+/// beacon state, so a promoter cannot substitute different roots. No signer /
+/// nonce.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PromoteBlockTx {
+    pub subgrove_id: String,
+    pub block_number: u64,
+    pub historical_header_proof: crate::indexer_node::consensus_submitter::HistoricalHeaderProof,
 }
 
 #[cfg(test)]

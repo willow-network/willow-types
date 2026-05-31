@@ -80,6 +80,12 @@ pub struct AdjudicateBisectionTx {
     /// re-execution. Must be non-empty — empty evidence is rejected by
     /// `validate_adjudicate_bisection`.
     pub evidence_proofs: Vec<EventInclusionProof>,
+    /// Optional in-state-anchored proof: when present, consensus authenticates
+    /// the roots against the sync-committee anchor (deterministic) rather than a
+    /// live light client.
+    #[serde(default)]
+    pub historical_header_proof:
+        Option<crate::indexer_node::consensus_submitter::HistoricalHeaderProof>,
 }
 
 /// Transaction to set an indexer's availability for dispute resolution.

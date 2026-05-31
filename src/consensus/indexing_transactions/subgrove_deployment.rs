@@ -116,6 +116,10 @@ pub struct CompletenessCommitments {
     /// `willow-gkr`). For the canonical "match all transactions" filter use
     /// `willow_gkr::circuits::completeness_direct::EMPTY_TX_CONFIG_HASH`.
     pub tx_config_hash: [u32; 4],
+    /// Defer completeness verification to a `CompleteBlockTx` against the
+    /// in-state anchor (deterministic) instead of running it at the tip.
+    #[serde(default)]
+    pub deferred: bool,
 }
 
 /// Default subgrove mode: DataStorage with empty defaults.
