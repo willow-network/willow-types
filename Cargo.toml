@@ -11,26 +11,17 @@ categories = ["web-programming", "cryptography", "data-structures"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
-# `raw_value` is used by `serde_helpers::u128_flexible` to read a JSON
-# u128 losslessly regardless of whether the sender encoded it as a
-# number (Rust SDK) or a string (TypeScript SDK). Without it,
-# serde_json's default `deserialize_any` path routes large integers
-# through f64 and silently loses precision above 2^53.
+# `raw_value` lets u128_flexible round-trip large ints without f64 loss.
 serde_json = { version = "1.0", features = ["raw_value"] }
 thiserror = "1.0"
 sha2 = "0.10"
 hex = "0.4"
 base64 = "0.22"
-# Base58 codec for Solana pubkeys / program ids. Pure-Rust, no transitive
-# deps; used only by `consensus::manifest::SolanaPubkey`.
 bs58 = "0.5"
 chrono = { version = "0.4", features = ["serde"] }
 ciborium = "0.2"
 
 [dev-dependencies]
-# Used only by `serde_helpers` tests to assert that the JSON-leaning
-# helpers stay bincode-safe — consensus deserializes `Transaction` via
-# bincode, so any helper attached to a tx field must round-trip.
 bincode = "1.3"
 
 # Inlined (not `workspace = true`) so the crate publishes standalone
