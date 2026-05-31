@@ -430,7 +430,7 @@ mod template_subgrove_config_tests {
     #[test]
     fn rejects_non_canonical_chain() {
         let mut c = good_config();
-        c.chain = Some("ethereum".to_string()); // legacy alias — no longer accepted
+        c.chain = Some("ethereum".to_string());
         let err = c
             .validate()
             .expect_err("non-canonical chain must be rejected");

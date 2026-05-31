@@ -91,7 +91,7 @@ pub struct VerifiableRpcResponse {
 
     /// Verifiable Ethereum state proofs attached to this response.
     /// Populated for `/verifiable-rpc/eth/state` and
-    /// `/verifiable-rpc/eth/call` flows; empty for the legacy
+    /// `/verifiable-rpc/eth/call` flows; empty for the basic
     /// subgrove-query path. Each entry binds account (and optional
     /// storage slot) values to the block's `state_root` via MPT
     /// inclusion. SDKs cross-check each `state_root` against their
