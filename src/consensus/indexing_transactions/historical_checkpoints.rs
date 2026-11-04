@@ -46,8 +46,11 @@ pub struct HistoricalCheckpointTx {
     /// Hash of the subgrove configuration used for indexing.
     /// Ensures all indexers used the same transformation rules.
     pub subgrove_config_hash: [u8; 32],
-    /// Commitment to the L1 block headers processed.
-    /// SHA256(concat(block_number || block_hash for each block)).
+    /// Commitment to the L1 block headers processed: the v1 per-block range
+    /// commitment from [`super::range_commitment`] — a Merkle root over
+    /// `SHA256("WILLOW_RANGE_LEAF_V1" || le64(block_number) || block_hash || parent_hash)`
+    /// leaves, wrapped with the range endpoints and count. Consumers recompute
+    /// it from verifier-produced records; never trust the submitted value.
     pub block_headers_commitment: [u8; 32],
     /// Total number of events/entities indexed.
     pub total_entities: u64,

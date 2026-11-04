@@ -120,6 +120,32 @@ pub struct CompletenessCommitments {
     /// in-state anchor (deterministic) instead of running it at the tip.
     #[serde(default)]
     pub deferred: bool,
+    /// WILL bond (in wei) the indexer locks per deferred submission, asserting
+    /// "this is the complete set for this block." Released to the indexer when
+    /// the block settles complete at finalization; slashed (split between the
+    /// settling `CompleteBlockTx.beneficiary` and the treasury) if an omission
+    /// is proven. `0` opts out of the instant economic-completeness tier — the
+    /// subgrove then behaves exactly as a deferred subgrove with no bond
+    /// (head-anchor completeness only). Any non-zero value must meet
+    /// [`crate::token::units::MIN_COMPLETENESS_BOND`].
+    #[serde(default)]
+    pub bond_amount: u128,
+}
+
+impl CompletenessCommitments {
+    /// Validate the per-subgrove completeness bond: either `0` (opt out of the
+    /// economic tier) or at least the protocol minimum, so a slash is always a
+    /// meaningful deterrent. Enforced at subgrove registration.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.bond_amount != 0 && self.bond_amount < crate::token::units::MIN_COMPLETENESS_BOND {
+            return Err(format!(
+                "completeness bond_amount {} is below the protocol minimum {}",
+                self.bond_amount,
+                crate::token::units::MIN_COMPLETENESS_BOND
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// Default subgrove mode: DataStorage with empty defaults.
@@ -279,6 +305,96 @@ impl RetentionWindow {
                 *n as u128 * ASSUMED_BLOCK_TIME_SECONDS as u128,
                 STORAGE_HORIZON_SECONDS as u128,
             ),
+        }
+    }
+}
+
+#[cfg(test)]
+mod completeness_bond_tests {
+    use super::CompletenessCommitments;
+    use crate::token::units::{MIN_COMPLETENESS_BOND, ONE_WILL};
+
+    fn commitments(bond_amount: u128) -> CompletenessCommitments {
+        CompletenessCommitments {
+            log_config_hash: [1, 2, 3, 4],
+            tx_config_hash: [5, 6, 7, 8],
+            deferred: true,
+            bond_amount,
+        }
+    }
+
+    #[test]
+    fn zero_bond_opts_out_and_validates() {
+        assert!(commitments(0).validate().is_ok());
+    }
+
+    #[test]
+    fn at_or_above_minimum_validates() {
+        assert!(commitments(MIN_COMPLETENESS_BOND).validate().is_ok());
+        assert!(commitments(1000 * ONE_WILL).validate().is_ok());
+    }
+
+    #[test]
+    fn nonzero_below_minimum_is_rejected() {
+        let err = commitments(MIN_COMPLETENESS_BOND - 1)
+            .validate()
+            .unwrap_err();
+        assert!(err.contains("below the protocol minimum"), "got: {err}");
+    }
+
+    #[test]
+    fn bond_amount_survives_bincode_round_trip() {
+        let c = commitments(250 * ONE_WILL);
+        let bytes = bincode::serialize(&c).unwrap();
+        let got: CompletenessCommitments = bincode::deserialize(&bytes).unwrap();
+        assert_eq!(got.bond_amount, 250 * ONE_WILL);
+        assert_eq!(got.deferred, true);
+    }
+
+    #[test]
+    fn legacy_json_without_bond_defaults_to_zero() {
+        // Pre-bond records (JSON in SubgroveIndexingInfo) had no bond_amount;
+        // #[serde(default)] must read them back as opt-out.
+        let json = r#"{"log_config_hash":[1,2,3,4],"tx_config_hash":[5,6,7,8],"deferred":true}"#;
+        let got: CompletenessCommitments = serde_json::from_str(json).unwrap();
+        assert_eq!(got.bond_amount, 0);
+    }
+
+    /// Locks the bincode field order inside `SubgroveMode::BlockchainIndexing`:
+    /// `bond_amount` lives inside `completeness`, which sits *before*
+    /// `historical_auth_mode`. bincode is positional with no field tags, so a
+    /// future reorder would silently corrupt the bond amount on the wire — this
+    /// asserts both the embedded `bond_amount` and the trailing
+    /// `historical_auth_mode` survive a round-trip of the whole mode.
+    #[test]
+    fn blockchain_indexing_mode_preserves_bond_and_field_order() {
+        use super::{HistoricalAuthMode, RetentionWindow, SubgroveMode};
+        use crate::consensus::indexing_transactions::{ExecutionMode, IndexerConfig};
+
+        let mode = SubgroveMode::BlockchainIndexing {
+            manifest_content: vec![1, 2, 3],
+            wasm_modules: vec![],
+            execution_mode: ExecutionMode::default(),
+            indexer_config: IndexerConfig::default(),
+            retention_window: RetentionWindow::default(),
+            completeness: Some(commitments(250 * ONE_WILL)),
+            historical_auth_mode: HistoricalAuthMode::CanonizedAccumulator,
+        };
+        let bytes = bincode::serialize(&mode).unwrap();
+        let got: SubgroveMode = bincode::deserialize(&bytes).unwrap();
+        match got {
+            SubgroveMode::BlockchainIndexing {
+                completeness,
+                historical_auth_mode,
+                ..
+            } => {
+                assert_eq!(completeness.unwrap().bond_amount, 250 * ONE_WILL);
+                assert_eq!(
+                    historical_auth_mode,
+                    HistoricalAuthMode::CanonizedAccumulator
+                );
+            }
+            _ => panic!("expected BlockchainIndexing"),
         }
     }
 }

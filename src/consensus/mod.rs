@@ -2,6 +2,7 @@ pub mod chains;
 pub mod dispute_resolution;
 pub mod indexing_transactions;
 pub mod manifest;
+pub mod signed_messages;
 pub mod transactions;
 
 pub use chains::{ChainFamily, SupportedChain};

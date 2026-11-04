@@ -69,22 +69,17 @@ pub struct VerifiableRpcResponse {
     /// - Length 1: single-chunk submission (matched events fit in one
     ///   circuit batch). Mirrors the bulk of real-world traffic.
     /// - Length > 1: chunked submission. The indexer generated one
-    ///   transformation proof per chunk of `COMPLETENESS_LOG_BATCH`
-    ///   matched events; chunk i+1's `starting_state_root` chains to
+    ///   transformation proof per chunk of matched events (currently 8
+    ///   per chunk); chunk i+1's `starting_state_root` chains to
     ///   chunk i's `output_root`. Browsers verify each chunk in turn
     ///   and confirm the final chunk's `output_root == state_root`.
     #[serde(default)]
     pub gkr_proofs: Vec<GkrProofData>,
 
-    /// Serialized `ChunkedBlockCompletenessProof` for the same
-    /// checkpoint. Present when the subgrove is completeness-enabled
-    /// and the indexer kept the proof for this checkpoint.
-    ///
-    /// Browsers consume this via
-    /// `gkr_verify_wasm::verify_chunked_block_completeness` to verify
-    /// independently of the transformation proof, closing the
-    /// indexer-subset-picking attack on the browser side that
-    /// consensus already catches.
+    /// Reserved completeness-proof bytes for the same checkpoint. The
+    /// completeness guarantee is the combined receipts-root +
+    /// matched-events proof, carried and verified elsewhere; this field
+    /// is retained for wire compatibility.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(with = "crate::serde_helpers::option_bytes_base64")]
     pub completeness_proof: Option<Vec<u8>>,
