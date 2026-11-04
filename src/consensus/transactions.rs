@@ -192,8 +192,7 @@ pub enum Transaction {
     /// recompute its `source_start_block` + contract addresses from the new
     /// manifest and bump its `deployment_epoch` so indexers wipe their local DB
     /// and re-index from the new start block. Owner-gated — the signer must equal
-    /// the stored owner, over the `ReplaceSubgrove` message, whose `Config` line is the
-    /// SHA-256 of this transaction's bincode with an empty signature.
+    /// the stored owner, over the message `signed_messages::replace_subgrove` builds.
     /// Reuses the [`RegisterSubgroveTx`] payload: only
     /// `subgrove_id`, `owner_did`, `description`, `schema`, `mode`,
     /// `template_config`, `confirmation_depth`, and the auth fields are
@@ -387,6 +386,9 @@ pub const MAX_SUBGROVE_SCHEMA_LEN: usize = 65_536;
 pub const MAX_SUBGROVE_ADMINS: usize = 32;
 pub const MAX_WASM_MODULES_PER_SUBGROVE: usize = 8;
 pub const MAX_WASM_MODULE_BYTES: usize = 5 * 1024 * 1024;
+/// A WASM module's name is a key in its subgrove's `wasm` tree (grovedb-merk 3.1.0 mis-encodes a
+/// key of 256 bytes or more). Applied by CheckTx and by block execution.
+pub const MAX_WASM_MODULE_NAME_LEN: usize = 128;
 
 /// Required prefix for every DID in Willow's identity system. Validators
 /// reject any `*_did` field whose value doesn't start here.

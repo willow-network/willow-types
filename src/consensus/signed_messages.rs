@@ -17,7 +17,7 @@
 //! Every first line differs from every other signed message's, so no signature carries across
 //! kinds. RegisterSubgrove and ReplaceSubgrove sign their own first line, then `Subgrove`,
 //! `Owner`, `Config` (the lowercase hex SHA-256 of the `RegisterSubgroveTx` bincode with an empty
-//! signature), and `Nonce`.
+//! signature, [`subgrove_config`]), and `Nonce`.
 
 use sha2::{Digest, Sha256};
 
@@ -140,6 +140,55 @@ pub fn rotate_subgrove_key(tx: &RotateSubgroveKeyTx) -> Result<String, String> {
     }
     lines.push(format!("Nonce: {}", tx.nonce));
     Ok(lines.join("\n"))
+}
+
+/// The SHA-256 of a RegisterSubgroveTx's bincode with an empty signature: the `Config` that
+/// RegisterSubgrove and ReplaceSubgrove sign.
+pub fn subgrove_config(tx: &RegisterSubgroveTx) -> Result<[u8; 32], String> {
+    let mut unsigned = tx.clone();
+    unsigned.signature = Vec::new();
+    Ok(Sha256::digest(unsigned_bincode(&unsigned)?).into())
+}
+
+fn config_form(kind: &str, tx: &RegisterSubgroveTx) -> Result<String, String> {
+    Ok([
+        kind.to_string(),
+        field("Subgrove", &tx.subgrove_id)?,
+        field("Owner", &tx.owner_did)?,
+        format!("Config: {}", hex::encode(subgrove_config(tx)?)),
+        format!("Nonce: {}", tx.nonce),
+    ]
+    .join("\n"))
+}
+
+/// `RegisterSubgrove`, `Subgrove`, `Owner`, `Config`, `Nonce`.
+pub fn register_subgrove(tx: &RegisterSubgroveTx) -> Result<String, String> {
+    config_form("RegisterSubgrove", tx)
+}
+
+/// `ReplaceSubgrove`, `Subgrove`, `Owner`, `Config`, `Nonce`.
+pub fn replace_subgrove(tx: &RegisterSubgroveTx) -> Result<String, String> {
+    config_form("ReplaceSubgrove", tx)
+}
+
+/// `UpdateSubgroveReadPricing`, `Subgrove`, `Owner`, then `Pricing: none`, or `Enabled`, `Price`,
+/// and `OwnerShareBps`; `Nonce`.
+pub fn update_read_pricing(tx: &UpdateSubgroveReadPricingTx) -> Result<String, String> {
+    let mut out = vec![
+        "UpdateSubgroveReadPricing".to_string(),
+        field("Subgrove", &tx.subgrove_id)?,
+        field("Owner", &tx.owner_did)?,
+    ];
+    match &tx.read_pricing {
+        None => out.push("Pricing: none".to_string()),
+        Some(p) => out.extend([
+            format!("Enabled: {}", p.enabled),
+            format!("Price: {}", p.price_per_query),
+            format!("OwnerShareBps: {}", p.owner_revenue_share_bps),
+        ]),
+    }
+    out.push(format!("Nonce: {}", tx.nonce));
+    Ok(out.join("\n"))
 }
 
 /// `UnregisterStorageNode`, `Node`, `Nonce`.
