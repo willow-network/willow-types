@@ -154,22 +154,79 @@ pub enum Transaction {
     SubmitAnchor(SubmitAnchorTx),
 
     /// Bootstrap the in-consensus Ethereum sync-committee light client from a
-    /// trusted weak-subjectivity checkpoint. Admin-gated, one-time per network;
-    /// see `crates/consensus/src/willow_cometbft/light_client_transactions.rs`.
+    /// trusted weak-subjectivity checkpoint. Admin-gated, one-time per network.
     SubmitLightClientBootstrap(SubmitLightClientBootstrapTx),
 
     /// Advance the in-consensus light client's beacon anchors from a
     /// sync-committee-signed beacon update. Permissionless + self-authenticating
     /// (validity = the BLS signature + branch proofs verify against the tracked
-    /// committee). See `light_client_transactions.rs`.
+    /// committee).
     SubmitBeaconUpdate(SubmitBeaconUpdateTx),
 
     /// Promote an already-stored block update to a higher authentication status
     /// by re-verifying its carried historical proof against the now-advanced
     /// in-consensus anchor. Permissionless + self-authenticating (validity = the
     /// proof chains the block's *stored* roots into a tracked anchor's beacon
-    /// state). See `indexed_data_handler::promotion`.
+    /// state).
     PromoteBlock(PromoteBlockTx),
+
+    /// Complete a deferred-completeness block: re-run the anti-censorship
+    /// completeness check on the already-stored submission against the
+    /// now-advanced in-consensus anchor, flipping it to `Verified`.
+    /// Permissionless + self-authenticating (validity = the carried proof + the
+    /// stored submission verify against a tracked anchor).
+    CompleteBlock(CompleteBlockTx),
+
+    /// Reclaim a completeness bond stranded on a reorg-orphaned block: release
+    /// the indexer's locked bond once a carried proof shows the canonical block
+    /// at the bonded block's number has a different hash than the stored
+    /// submission. Permissionless + self-authenticating (validity = the proof
+    /// chains the canonical block into the in-consensus finalized anchor and its
+    /// hash differs from the stored one).
+    ReclaimCompletenessBond(ReclaimCompletenessBondTx),
+
+    /// Replace an already-registered subgrove's manifest/config in place:
+    /// recompute its `source_start_block` + contract addresses from the new
+    /// manifest and bump its `deployment_epoch` so indexers wipe their local DB
+    /// and re-index from the new start block. Owner-gated — the signer must equal
+    /// the stored owner, over the message `signed_messages::replace_subgrove` builds.
+    /// Reuses the [`RegisterSubgroveTx`] payload: only
+    /// `subgrove_id`, `owner_did`, `description`, `schema`, `mode`,
+    /// `template_config`, `confirmation_depth`, and the auth fields are
+    /// consulted; `name`, `admins`, `initial_funding`, and `privacy` are ignored
+    /// (a replace never re-funds or transfers ownership).
+    ReplaceSubgrove(RegisterSubgroveTx),
+
+    /// Indexer announces it is no longer indexing a subgrove — removes the
+    /// indexer DID from the subgrove's `active_indexers` list (the inverse of
+    /// `ClaimSubgroveIndexing`). Idempotent: releasing a subgrove the indexer
+    /// isn't recorded on is a no-op.
+    ReleaseSubgrove(ReleaseSubgroveTx),
+
+    /// Toggle a subgrove's `cryptographic_completeness` opt-in. Owner-gated —
+    /// signed over `UpdateSubgroveCryptographicCompleteness:{id}:{owner}:{enabled}:{nonce}`
+    /// and the signer must equal the stored owner. When enabled, the indexer
+    /// produces a receipts-trie completeness proof per block submission and
+    /// validators verify it against the trusted `receipts_root`.
+    UpdateSubgroveCryptographicCompleteness(UpdateSubgroveCryptographicCompletenessTx),
+
+    /// Request a coverage attestation over a block range. Consensus recomputes
+    /// `verify_checkpoint_range_coverage` INLINE (cap-enforced) from its OWN
+    /// verifier records and persists a [`CoverageAttestation`] ONLY if the range
+    /// is `Covered`; any `NotCovered` verdict — absence OR provable lie —
+    /// rejects the tx and persists nothing. Permissionless: anyone may submit
+    /// (signed + nonce'd purely for spam / replay control). An attestation
+    /// existing in state therefore means consensus itself recomputed `Covered`.
+    CoverageAttestation(CoverageAttestationTx),
+
+    /// Rotate a validator's CometBFT consensus key. Signed by the validator's
+    /// DID key over `RotateConsensusKey\nValidator: {did}\nNewPubkey: {b64}\nNonce: {n}`.
+    /// On success the app updates its stored `ValidatorInfo.consensus_pubkey`
+    /// and returns exactly two CometBFT validator updates from FinalizeBlock —
+    /// the new key at the validator's current power and the old key at power 0
+    /// — which CometBFT applies at height H+2. Both derive from the committed
+    /// tx, committed state and the block's own last commit, never from config.
+    RotateConsensusKey(RotateConsensusKeyTx),
 }
 
 impl Transaction {
@@ -232,6 +289,15 @@ impl Transaction {
             Transaction::SubmitLightClientBootstrap(_) => "submit_light_client_bootstrap",
             Transaction::SubmitBeaconUpdate(_) => "submit_beacon_update",
             Transaction::PromoteBlock(_) => "promote_block",
+            Transaction::CompleteBlock(_) => "complete_block",
+            Transaction::ReclaimCompletenessBond(_) => "reclaim_completeness_bond",
+            Transaction::ReplaceSubgrove(_) => "replace_subgrove",
+            Transaction::ReleaseSubgrove(_) => "release_subgrove",
+            Transaction::UpdateSubgroveCryptographicCompleteness(_) => {
+                "update_cryptographic_completeness"
+            }
+            Transaction::CoverageAttestation(_) => "coverage_attestation",
+            Transaction::RotateConsensusKey(_) => "rotate_consensus_key",
         }
     }
 }
@@ -290,6 +356,21 @@ pub struct UnstakeTx {
     pub nonce: u64,
 }
 
+/// Transaction to rotate a validator's CometBFT consensus public key.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RotateConsensusKeyTx {
+    /// DID of the validator whose consensus key is being rotated.
+    pub validator_did: String,
+    /// New Ed25519 consensus public key, base64 (CometBFT `pub_key.value`).
+    pub new_consensus_pubkey: String,
+    /// Cryptographic signature from the validator.
+    pub signature: Vec<u8>,
+    /// ID of the public key used for signing.
+    pub public_key_id: String,
+    /// Replay protection nonce.
+    pub nonce: u64,
+}
+
 /// Upper bounds enforced by the consensus validator on `RegisterSubgroveTx`
 /// fields. Chosen to keep on-chain state bounded per subgrove and to limit
 /// the work the validator + mempool have to do per transaction. Bumping any
@@ -302,6 +383,9 @@ pub const MAX_SUBGROVE_SCHEMA_LEN: usize = 65_536;
 pub const MAX_SUBGROVE_ADMINS: usize = 32;
 pub const MAX_WASM_MODULES_PER_SUBGROVE: usize = 8;
 pub const MAX_WASM_MODULE_BYTES: usize = 5 * 1024 * 1024;
+/// A WASM module's name is a key in its subgrove's `wasm` tree (grovedb-merk 3.1.0 mis-encodes a
+/// key of 256 bytes or more). Applied by CheckTx, and in blocks from the node's activation height.
+pub const MAX_WASM_MODULE_NAME_LEN: usize = 128;
 
 /// Required prefix for every DID in Willow's identity system. Validators
 /// reject any `*_did` field whose value doesn't start here.
@@ -543,7 +627,7 @@ pub struct RegisterSubgroveTx {
     /// Optional initial key grant for the owner (when privacy is enabled).
     #[serde(default)]
     pub initial_owner_key_grant: Option<crate::storage::EncryptedKeyGrant>,
-    /// ZK-template binding for GkrExecution mode.
+    /// Optional ZK-template binding (legacy; carried through for wire compatibility).
     #[serde(default)]
     pub template_config: Option<crate::storage::TemplateSubgroveConfig>,
     /// Blocks held in the chain-tip buffer before submissions fire.
@@ -556,6 +640,11 @@ pub struct RegisterSubgroveTx {
     pub public_key_id: String,
     /// Replay protection nonce.
     pub nonce: u64,
+    /// Opt-in to browser-trustless receipts-trie completeness proofs.
+    /// Appended last: txs are bincode-encoded (positional), so new fields go
+    /// at the end — `#[serde(default)]` only protects JSON decoding.
+    #[serde(default)]
+    pub cryptographic_completeness: bool,
 }
 
 /// Transaction to fund a subgrove's balance for storage fees.
@@ -605,6 +694,25 @@ pub struct UpdateSubgroveReadPricingTx {
     pub owner_did: String,
     /// New pricing configuration (None to disable paid reads).
     pub read_pricing: Option<crate::token::ReadPricing>,
+    /// Cryptographic signature from the owner.
+    pub signature: Vec<u8>,
+    /// ID of the public key used for signing.
+    pub public_key_id: String,
+    /// Replay protection nonce.
+    pub nonce: u64,
+}
+
+/// Transaction to toggle a subgrove's `cryptographic_completeness` opt-in.
+///
+/// Only the subgrove owner can submit this transaction.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateSubgroveCryptographicCompletenessTx {
+    /// Subgrove to update.
+    pub subgrove_id: String,
+    /// DID of the subgrove owner making the change.
+    pub owner_did: String,
+    /// New value of the cryptographic-completeness opt-in flag.
+    pub cryptographic_completeness: bool,
     /// Cryptographic signature from the owner.
     pub signature: Vec<u8>,
     /// ID of the public key used for signing.
@@ -1106,6 +1214,26 @@ pub struct ClaimSubgroveIndexingTx {
     pub nonce: u64,
 }
 
+/// Transaction submitted by an indexer when it stops indexing a subgrove —
+/// the inverse of [`ClaimSubgroveIndexingTx`]. Removes the indexer DID from
+/// the subgrove's `active_indexers` list so the dashboard's indexer count
+/// reflects active coverage rather than every claim ever made.
+///
+/// Idempotent: releasing a subgrove the indexer isn't recorded on is a no-op.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReleaseSubgroveTx {
+    /// Subgrove the indexer is releasing.
+    pub subgrove_id: String,
+    /// Indexer DID relinquishing the subgrove.
+    pub indexer_did: String,
+    /// Signature over a canonical message that includes subgrove_id, indexer_did, and nonce.
+    pub signature: Vec<u8>,
+    /// ID of the public key used for signing.
+    pub public_key_id: String,
+    /// Replay protection nonce.
+    pub nonce: u64,
+}
+
 /// Transaction to record an ERC-8004 agent registration on an
 /// Ethereum-compatible chain.
 ///
@@ -1138,8 +1266,8 @@ pub const MAX_ANCHOR_HASH_HEX_LEN: usize = 128; // sha256 hex = 64; allow headro
 pub const MAX_ANCHOR_TIMESTAMP_LEN: usize = 64;
 
 /// Sentinel `previous_anchor_hash` value for the genesis anchor of a fresh
-/// receipt log. Matches the in-process sentinel used by the MCP server's
-/// receipt-log module (`mcp/src/receipt-log.ts`).
+/// receipt log. Matches the in-process sentinel used by willow-mcp's
+/// receipt log.
 pub const ANCHOR_GENESIS_SENTINEL: &str = "genesis";
 
 /// Submit a receipt-batch anchor with chain-enforced per-DID monotonicity.
@@ -1304,6 +1432,111 @@ pub struct PromoteBlockTx {
     pub historical_header_proof: crate::indexer_node::consensus_submitter::HistoricalHeaderProof,
 }
 
+/// Completes a deferred-completeness block: the handler reads the stored pending
+/// submission, re-runs the completeness anti-censorship check against the
+/// now-advanced in-consensus anchor via the carried proof, and flips the block
+/// to `Verified`. Permissionless + self-authenticating (proof only — the
+/// submission data is already in state). No signer / nonce.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompleteBlockTx {
+    pub subgrove_id: String,
+    pub block_number: u64,
+    pub historical_header_proof: crate::indexer_node::consensus_submitter::HistoricalHeaderProof,
+    /// DID paid the catcher's share if this settlement proves an omission and
+    /// slashes the indexer's completeness bond (the remainder goes to treasury).
+    /// Self-declared and unsigned — the submitter can only name where their own
+    /// reward goes, never forge the slash itself (the omission is verified
+    /// deterministically against the finalized anchor). Empty = no payee, so the
+    /// whole slash goes to treasury. Irrelevant on the honest (release) path.
+    #[serde(default)]
+    pub beneficiary: String,
+}
+
+/// Reclaims a completeness bond stranded on a reorg-orphaned block: releases the
+/// indexer's locked bond once the carried proof shows the *canonical*
+/// (finalized-anchored) execution block at the bonded block's number has a
+/// different hash than the stored submission. Permissionless +
+/// self-authenticating (validity = the proof verifies against the in-consensus
+/// finalized anchor and the hash differs). No signer / nonce — the bond is
+/// released to the original indexer recorded in the bond, never to the
+/// submitter, so there is nothing to forge.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReclaimCompletenessBondTx {
+    pub subgrove_id: String,
+    pub block_number: u64,
+    /// Proof that the canonical block at `block_number` has a different hash
+    /// than the bonded submission stored for `(subgrove_id, block_number)`.
+    pub orphan_proof: crate::indexer_node::consensus_submitter::CanonicalBlockProof,
+}
+
+/// Request a coverage attestation over `[start, end]` for `subgrove_id`.
+///
+/// Anyone may submit. Consensus recomputes `verify_checkpoint_range_coverage`
+/// inline against its own verifier records (cap: `RANGE_COVERAGE_MAX_INLINE`,
+/// 100_000) and persists a [`CoverageAttestation`] ONLY when the range is
+/// `Covered`; any `NotCovered` verdict — absence or provable lie — rejects the
+/// tx and persists nothing. Signed + nonce'd purely for spam / replay control,
+/// mirroring every other tx.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CoverageAttestationTx {
+    /// Subgrove whose per-block verifier records are consulted.
+    pub subgrove_id: String,
+    /// First block of the attested range (inclusive).
+    pub start: u64,
+    /// Last block of the attested range (inclusive).
+    pub end: u64,
+    /// The v1 range commitment the submitter claims — must equal the recompute
+    /// from the stored verifier records, else the range is `NotCovered`.
+    pub commitment: [u8; 32],
+    /// DID of the submitter (any registered DID; the tx is permissionless).
+    pub submitter_did: String,
+    /// Signature over the canonical attestation message.
+    pub signature: Vec<u8>,
+    /// ID of the public key used for signing.
+    pub public_key_id: String,
+    /// Replay protection nonce.
+    pub nonce: u64,
+}
+
+/// Persisted coverage attestation. It exists in consensus state (and is thus
+/// provable against the `app_hash`) ONLY because consensus itself recomputed
+/// the range as `Covered`. Keyed range-exact via [`coverage_attestation_key`]
+/// — a client asking a strict sub-range must NOT get a hit — so the future
+/// multi-chunk tiling rule can rely on attestations being range-exact.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CoverageAttestation {
+    /// Subgrove this attestation covers.
+    pub subgrove_id: String,
+    /// First block of the attested range (inclusive).
+    pub start: u64,
+    /// Last block of the attested range (inclusive).
+    pub end: u64,
+    /// The v1 range commitment consensus recomputed and matched.
+    pub commitment: [u8; 32],
+    /// Willow block height at which consensus recomputed + recorded this.
+    pub attested_at_height: u64,
+}
+
+/// Top-level GroveDb tree the coverage attestations live under. This is the
+/// SAME GroveDb whose root becomes the CometBFT `app_hash`, so a single-key
+/// proof of an attestation roots to the committed app_hash. Shared between the
+/// consensus writer and the API's reader so both derive an identical path.
+pub const COVERAGE_ATTESTATION_ROOT_TREE: &[u8] = b"indexed_data";
+/// Sub-tree (under [`COVERAGE_ATTESTATION_ROOT_TREE`]) holding one child tree
+/// per subgrove, each keyed by [`coverage_attestation_key`].
+pub const COVERAGE_ATTESTATION_SUBTREE: &[u8] = b"coverage_attestations";
+
+/// Range-exact 16-byte key: `start.to_be_bytes() || end.to_be_bytes()`.
+/// Big-endian + fixed-width so any client rebuilds it deterministically from a
+/// `/coverage/{sg}/{start}/{end}` URL and no `(start, end)` can prefix-collide
+/// another (a strict sub-range hashes to a different key ⇒ no false hit).
+pub fn coverage_attestation_key(start: u64, end: u64) -> [u8; 16] {
+    let mut key = [0u8; 16];
+    key[..8].copy_from_slice(&start.to_be_bytes());
+    key[8..].copy_from_slice(&end.to_be_bytes());
+    key
+}
+
 #[cfg(test)]
 mod bincode_tests {
     //! Consensus deserializes `Transaction` via `bincode::deserialize`. The
@@ -1333,6 +1566,77 @@ mod bincode_tests {
         assert_eq!(got.memo, tx.memo);
     }
 
+    /// `CompleteBlockTx.beneficiary` (the catcher's slash-reward payee) is a
+    /// trailing bincode field; this guards that it survives the wire round-trip,
+    /// including the empty-string default. An economic-critical field — a silent
+    /// decode regression would misdirect or drop slash rewards.
+    #[test]
+    fn complete_block_tx_bincode_round_trip() {
+        use crate::indexer_node::consensus_submitter::HistoricalHeaderProof;
+        let proof = HistoricalHeaderProof {
+            anchor_el_block: 0,
+            anchor_beacon_root: [0u8; 32],
+            anchor_state_root: [0u8; 32],
+            anchor_eip4788_proof: vec![],
+            past_beacon_slot: 1,
+            past_beacon_block_root: [0u8; 32],
+            block_root_to_state_root_branch: vec![],
+            receipts_root_to_block_root_branch: vec![],
+            transactions_root_to_block_root_branch: vec![],
+            logs_bloom_to_block_root_branch: vec![],
+            block_number_to_block_root_branch: vec![],
+            block_hash_to_block_root_branch: vec![],
+            parent_hash_to_block_root_branch: vec![],
+        };
+        let tx = CompleteBlockTx {
+            subgrove_id: "sg".to_string(),
+            block_number: 7,
+            historical_header_proof: proof,
+            beneficiary: "did:willow:catcher".to_string(),
+        };
+        let got: CompleteBlockTx = bincode::deserialize(&bincode::serialize(&tx).unwrap()).unwrap();
+        assert_eq!(got.beneficiary, "did:willow:catcher");
+        assert_eq!(got.block_number, 7);
+
+        let tx2 = CompleteBlockTx {
+            beneficiary: String::new(),
+            ..tx
+        };
+        let got2: CompleteBlockTx =
+            bincode::deserialize(&bincode::serialize(&tx2).unwrap()).unwrap();
+        assert!(got2.beneficiary.is_empty());
+    }
+
+    /// `ReclaimCompletenessBondTx` + its embedded `CanonicalBlockProof` are
+    /// bincode wire types; guard that all fields survive the round-trip (a
+    /// silent decode regression would misverify orphan reclaims).
+    #[test]
+    fn reclaim_completeness_bond_tx_bincode_round_trip() {
+        use crate::indexer_node::consensus_submitter::CanonicalBlockProof;
+        let tx = ReclaimCompletenessBondTx {
+            subgrove_id: "sg".to_string(),
+            block_number: 21_000_000,
+            orphan_proof: CanonicalBlockProof {
+                canonical_beacon_slot: 8_100_000,
+                canonical_beacon_block_root: [0x11; 32],
+                canonical_block_hash: [0x22; 32],
+                block_root_to_state_root_branch: vec![1, 2, 3],
+                block_number_to_block_root_branch: vec![4, 5, 6],
+                block_hash_to_block_root_branch: vec![7, 8, 9],
+            },
+        };
+        let got: ReclaimCompletenessBondTx =
+            bincode::deserialize(&bincode::serialize(&tx).unwrap()).unwrap();
+        assert_eq!(got.subgrove_id, "sg");
+        assert_eq!(got.block_number, 21_000_000);
+        assert_eq!(got.orphan_proof.canonical_block_hash, [0x22; 32]);
+        assert_eq!(got.orphan_proof.canonical_beacon_slot, 8_100_000);
+        assert_eq!(
+            got.orphan_proof.block_hash_to_block_root_branch,
+            vec![7, 8, 9]
+        );
+    }
+
     #[test]
     fn fund_subgrove_tx_bincode_round_trip() {
         let tx = FundSubgroveTx {
@@ -1346,6 +1650,41 @@ mod bincode_tests {
         let bytes = bincode::serialize(&tx).expect("bincode serialize");
         let got: FundSubgroveTx = bincode::deserialize(&bytes).expect("bincode deserialize");
         assert_eq!(got.amount, tx.amount);
+    }
+
+    #[test]
+    fn replace_subgrove_tx_bincode_round_trip() {
+        // ReplaceSubgrove reuses the RegisterSubgroveTx payload; round-trip the
+        // whole Transaction enum so the appended variant tag stays stable.
+        let inner = RegisterSubgroveTx {
+            subgrove_id: "sg-1".to_string(),
+            name: String::new(),
+            description: "replace".to_string(),
+            schema: "type T @entity { id: ID! }".to_string(),
+            owner_did: "did:willow:owner".to_string(),
+            admins: vec![],
+            initial_funding: None,
+            checkpoint_verification: Default::default(),
+            mode: default_data_storage_mode(),
+            privacy: None,
+            initial_owner_key_grant: None,
+            template_config: None,
+            confirmation_depth: 0,
+            signature: vec![1, 2, 3],
+            public_key_id: "did:willow:owner#key-1".to_string(),
+            nonce: 7,
+            cryptographic_completeness: false,
+        };
+        let tx = Transaction::ReplaceSubgrove(inner);
+        let bytes = bincode::serialize(&tx).expect("bincode serialize");
+        let got: Transaction = bincode::deserialize(&bytes).expect("bincode deserialize");
+        match got {
+            Transaction::ReplaceSubgrove(r) => {
+                assert_eq!(r.subgrove_id, "sg-1");
+                assert_eq!(r.nonce, 7);
+            }
+            other => panic!("expected ReplaceSubgrove, got {}", other.type_name()),
+        }
     }
 
     #[test]

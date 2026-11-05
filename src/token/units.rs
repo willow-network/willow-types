@@ -78,6 +78,12 @@ pub const SLASH_COMMITMENT_INTEGRITY: u128 = 5 * ONE_KILO_WILL;
 /// Fraud: malicious behavior (10,000 WILL — full min indexer stake)
 pub const SLASH_MALICIOUS_BEHAVIOR: u128 = 10 * ONE_KILO_WILL;
 
+/// Minimum per-submission completeness bond when a subgrove opts into the
+/// instant economic-completeness tier (100 WILL). Small by design — the
+/// capital lock is `bond × in-flight` (~64 blocks over a ~12.8-min window) —
+/// but large enough that a slash deters omission. `bond_amount = 0` opts out.
+pub const MIN_COMPLETENESS_BOND: u128 = 100 * ONE_WILL;
+
 // ============================================================================
 // Common fee amounts
 // ============================================================================

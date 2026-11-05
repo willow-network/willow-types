@@ -14,6 +14,14 @@ pub const DEFAULT_CHUNK_SIZE: u32 = 262_144;
 /// Maximum file size (1 GB).
 pub const MAX_FILE_SIZE: u64 = 1_073_741_824;
 
+/// Minimum chunk size for a multi-chunk file (4 KB). Single-chunk files are exempt.
+pub const MIN_CHUNK_SIZE: u32 = 4_096;
+
+/// Maximum chunks a manifest may declare. Without it the chunk_count/chunk_size/
+/// total_size relation admits `chunk_size = 1`, letting a 1 GB file declare ~1e9
+/// chunks and turning per-chunk work on storage nodes into an amplification vector.
+pub const MAX_CHUNK_COUNT: u32 = (MAX_FILE_SIZE / MIN_CHUNK_SIZE as u64) as u32;
+
 /// Maximum filename length in bytes.
 pub const MAX_FILENAME_LENGTH: usize = 255;
 

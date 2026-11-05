@@ -45,13 +45,12 @@ pub struct WarpProofData {
     /// Public inputs that bind the proof to specific data and accumulator state.
     pub public_inputs: WarpPublicInputs,
 
-    /// Codeword `log_n` used by this proof. Must match the subgrove's
-    /// `WarpExecution.codeword_log_n` declared at registration.
+    /// The WARP codeword log-size this proof was built with.
     pub codeword_log_n: u8,
 
-    /// Construction 7.2 OOD sample count used by this proof. Must match
-    /// the subgrove's `WarpExecution.n_ood` — the FS transcript depends
-    /// on it, so a mismatch is a divergence and gets rejected.
+    /// Construction 7.2 OOD sample count used by this proof. The FS
+    /// transcript depends on it, so a mismatch is a divergence and gets
+    /// rejected.
     pub n_ood: u8,
 
     /// Construction 7.2 shift-query count used by this proof. Same

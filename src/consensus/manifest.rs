@@ -40,6 +40,12 @@ pub struct WillowManifest {
     pub description: Option<String>,
     /// One or more contract data sources to index.
     pub data_sources: Vec<DataSource>,
+    /// Opt into deferred completeness verification: completeness-proof blocks are
+    /// accepted optimistically at the tip and verified against the in-consensus
+    /// anchor later via `CompleteBlockTx`, instead of at submission time. Default
+    /// off (tip-time verification); existing manifests parse unchanged.
+    #[serde(default)]
+    pub deferred_completeness: bool,
 }
 
 /// A single data source within a manifest, dispatched by chain family.

@@ -117,6 +117,14 @@ pub struct BlockHeaderCommitment {
     /// `transaction_proof` against this root.
     #[serde(default)]
     pub transactions_root: [u8; 32],
+    /// The block's execution-header `logs_bloom` (256 bytes). Empty unless
+    /// the submission opts into authenticated bloom-skip completeness. The
+    /// validator never trusts it directly — it recomputes the SSZ
+    /// hash-tree-root and binds it to the beacon anchor via
+    /// `HistoricalHeaderProof.logs_bloom_to_block_root_branch` before any
+    /// non-membership check, so a defaulted/forged bloom can't pass.
+    #[serde(default)]
+    pub logs_bloom: Vec<u8>,
     pub timestamp: u64,
 }
 
@@ -196,14 +204,95 @@ pub struct HistoricalHeaderProof {
     /// `execution_payload` and `body` to `past_beacon_block_root`
     /// (root).
     pub receipts_root_to_block_root_branch: Vec<u8>,
-    /// SSZ Merkle branch chain proving `transactions_root` (leaf,
-    /// taken from `BlockHeaderCommitment.transactions_root`) hashes
-    /// up through `execution_payload` and `body` to
-    /// `past_beacon_block_root` (root). Both EL roots are
-    /// authenticated separately because
-    /// `verify_completeness_submission` runs MPT proofs against
-    /// each independently.
+    /// SSZ Merkle branch chain proving the SSZ hash-tree-root of the
+    /// `execution_payload.transactions` List (leaf) hashes up through
+    /// `execution_payload` and `body` to `past_beacon_block_root`
+    /// (root). NOTE: the leaf is the **SSZ list HTR**, NOT the EL
+    /// header's keccak-MPT `transactionsRoot` (the beacon
+    /// `ExecutionPayload` has no such field). A verifier must supply
+    /// the SSZ list HTR as the claimed leaf and bind the EL keccak-MPT
+    /// root separately via a trie root over the same raw tx set.
+    /// `receipts_root_to_block_root_branch` differs: its leaf is
+    /// the `receipts_root` `Bytes32`, whose value IS the EL keccak-MPT
+    /// receipts root.
     pub transactions_root_to_block_root_branch: Vec<u8>,
+    /// SSZ Merkle branch chain proving `logs_bloom` (leaf = the SSZ
+    /// hash-tree-root of `BlockHeaderCommitment.logs_bloom`, a 256-byte
+    /// vector) hashes up through `execution_payload` and `body` to
+    /// `past_beacon_block_root`. Empty when the indexer doesn't build it
+    /// (old indexers / non-completeness submissions) — the verifier then
+    /// treats the authenticated logs_bloom as unavailable. Authenticating
+    /// the bloom enables the no-match bloom-skip on the anchor-based
+    /// crypto-completeness path.
+    #[serde(default)]
+    pub logs_bloom_to_block_root_branch: Vec<u8>,
+    /// SSZ Merkle branch chain proving `block_number` (leaf = the SSZ
+    /// uint64 encoding of `BlockHeaderCommitment.block_number`) hashes
+    /// up through `execution_payload` and `body` to
+    /// `past_beacon_block_root`. One of the three chain-linkage
+    /// branches: the verifier requires all three present-and-valid or
+    /// all three absent (absent = NOT chain-linked, the state old
+    /// proofs deserialize to); a partial triple is rejected outright,
+    /// so the prover never selects which linkage checks run.
+    #[serde(default)]
+    pub block_number_to_block_root_branch: Vec<u8>,
+    /// SSZ Merkle branch chain proving `block_hash` (leaf =
+    /// `BlockHeaderCommitment.block_hash`; the execution payload's
+    /// `block_hash` IS the EL header keccak by consensus rules) hashes
+    /// to `past_beacon_block_root`. Authenticates the value a child
+    /// block's `parent_hash` must name, making range gap-freeness
+    /// (`child.parent_hash == parent.block_hash`) checkable.
+    #[serde(default)]
+    pub block_hash_to_block_root_branch: Vec<u8>,
+    /// SSZ Merkle branch chain proving `parent_hash` (leaf =
+    /// `BlockHeaderCommitment.parent_hash`) hashes to
+    /// `past_beacon_block_root`. Third chain-linkage branch; same
+    /// all-or-nothing rule as `block_number_to_block_root_branch`.
+    #[serde(default)]
+    pub parent_hash_to_block_root_branch: Vec<u8>,
+}
+
+/// Proof that the **canonical** execution block at a given EL block number has
+/// a specific `block_hash`, anchored to the in-consensus **finalized** beacon
+/// anchor. Used by `ReclaimCompletenessBondTx` to prove a bonded block was
+/// reorg-orphaned — i.e. the canonical block at the bonded block's number has a
+/// *different* hash than the stored submission — so the stranded completeness
+/// bond can be released to the indexer.
+///
+/// Structurally mirrors [`HistoricalHeaderProof`] but authenticates
+/// `(block_number, block_hash)` from the execution payload instead of the
+/// receipts/transactions roots, and carries no anchor-trust fields: the
+/// verifier anchors against the deterministic in-state finalized anchor (the
+/// same trust root the bond settlement uses), so no beacon RPC is needed.
+///
+/// EL block numbers are unique on the canonical chain, so exhibiting *any*
+/// canonical (finalized-anchored) block whose execution `block_number` equals
+/// the bonded block's number and whose `block_hash` differs proves the bonded
+/// block is not canonical at that height.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CanonicalBlockProof {
+    /// Slot of the canonical beacon block whose execution payload is proven.
+    /// Drives fork-version dispatch (Capella/Deneb/Electra SSZ shapes).
+    pub canonical_beacon_slot: u64,
+    /// Beacon block root for `canonical_beacon_slot`. Intermediate value; the
+    /// verifier reproduces it from the two leaf chains and confirms it chains
+    /// into the finalized anchor's state root.
+    pub canonical_beacon_block_root: [u8; 32],
+    /// The proven canonical EL `block_hash` (the leaf of the block_hash chain).
+    /// The settlement handler compares this against the stored bonded block's
+    /// hash; a mismatch proves the bonded block was orphaned.
+    pub canonical_block_hash: [u8; 32],
+    /// SSZ Merkle chain: `canonical_beacon_block_root` (leaf) → the finalized
+    /// anchor's beacon `state_root` (via `block_roots`/`historical_summaries`).
+    /// bincode of `Vec<MerkleStep>` — same shape as
+    /// [`HistoricalHeaderProof::block_root_to_state_root_branch`].
+    pub block_root_to_state_root_branch: Vec<u8>,
+    /// SSZ Merkle chain: execution-payload `block_number` (leaf, SSZ-encoded
+    /// uint64) → `canonical_beacon_block_root`.
+    pub block_number_to_block_root_branch: Vec<u8>,
+    /// SSZ Merkle chain: execution-payload `block_hash` (leaf =
+    /// `canonical_block_hash`) → `canonical_beacon_block_root`.
+    pub block_hash_to_block_root_branch: Vec<u8>,
 }
 
 /// Subgrove configuration data used for hash computation.
@@ -438,11 +527,10 @@ pub struct EvmIndexedBlockSubmissionTx {
     /// is the block's COMPLETE set, not a censored subset.
     #[serde(default)]
     pub block_receipts_rlp: Vec<Vec<u8>>,
-    /// Serialized `ChunkedBlockCompletenessProof` (from `willow-indexing`'s
-    /// completeness_prover). Carries one GKR proof per fixed-size log /
-    /// tx chunk, so blocks with more than a single circuit batch's worth
-    /// of logs or txs can still be proven. When present, consensus runs
-    /// the completeness-proof verification path.
+    /// Reserved completeness-proof bytes. The combined receipts-root +
+    /// matched-events proof — the only completeness proof — rides in
+    /// `receipts_root_proof` and is verified on the cryptographic-completeness
+    /// path. A submission that sets this field is rejected fail-closed.
     #[serde(default)]
     pub completeness_proof: Option<Vec<u8>>,
     /// Optional TEE attestation for TeeExecution mode.
@@ -467,32 +555,27 @@ pub struct EvmIndexedBlockSubmissionTx {
     pub signature: Vec<u8>,
     /// Nonce for replay protection
     pub nonce: u64,
-    /// Optional WARP fold-step proof for WarpExecution mode.
-    /// When present, consensus runs the WARP decider via `willow-folding`
-    /// instead of re-executing or running the GKR verifier.
+    /// Optional WARP fold-step proof. Retained for wire compatibility;
+    /// no longer verified — consensus rejects submissions that set it.
     #[serde(default)]
     pub warp_proof:
         Option<crate::consensus::indexing_transactions::warp_proof_types::WarpProofData>,
-    /// Optional WARP-folded GF2 receipts-trie proof.
-    ///
-    /// When present, this is a single folded artifact (`docs/research/
-    /// warp-gf2-pesat-sketch.md`) aggregating the per-chunk GF2 GKR
-    /// proofs produced by `prove_receipts_root` over the block's
-    /// receipts MPT. The fold compresses the otherwise-untenable
-    /// 28–50 MB of raw per-chunk Orion proofs into ~few hundred KB,
-    /// so the consensus tx can carry the proof on-wire.
+    /// Optional cryptographic-completeness proof envelope.
     ///
     /// When the subgrove opts into cryptographic completeness mode
-    /// (`SubgroveConfig::cryptographic_completeness == true`),
-    /// validators verify this proof against the trusted
-    /// `block_header.receipts_root`, replacing the native-Rust trie
-    /// reconstruction from #486 for that subgrove's submissions.
-    /// Browser-side: the SDK's `verify_full_completeness` checks the
-    /// same fold + re-runs the Fiat-Shamir transcript natively.
+    /// (`SubgroveConfig::cryptographic_completeness == true`), this
+    /// carries the Binius64 COMBINED proof (receipts-root +
+    /// matched-events). Validators re-stamp the constraint system from
+    /// the envelope's trie shape and verify it against the trusted
+    /// `block_header.receipts_root` and the subgrove filter, replacing
+    /// the native-Rust trie reconstruction for that subgrove's
+    /// submissions.
     ///
-    /// When `None`, the validator falls back to #486's validator-
-    /// trust path (native trie reconstruction). Subgroves that don't
-    /// opt into cryptographic mode always pass `None`.
+    /// When `None`, the validator falls back to the validator-
+    /// trust path (native trie reconstruction), except for the N<2
+    /// trivial-root case which is verified natively against the
+    /// trusted root with no proof. Subgroves that don't opt into
+    /// cryptographic mode always pass `None`.
     #[serde(default)]
     pub receipts_root_proof: Option<Vec<u8>>,
 }
