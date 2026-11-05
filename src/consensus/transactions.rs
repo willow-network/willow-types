@@ -154,29 +154,27 @@ pub enum Transaction {
     SubmitAnchor(SubmitAnchorTx),
 
     /// Bootstrap the in-consensus Ethereum sync-committee light client from a
-    /// trusted weak-subjectivity checkpoint. Admin-gated, one-time per network;
-    /// see `crates/consensus/src/willow_cometbft/light_client_transactions.rs`.
+    /// trusted weak-subjectivity checkpoint. Admin-gated, one-time per network.
     SubmitLightClientBootstrap(SubmitLightClientBootstrapTx),
 
     /// Advance the in-consensus light client's beacon anchors from a
     /// sync-committee-signed beacon update. Permissionless + self-authenticating
     /// (validity = the BLS signature + branch proofs verify against the tracked
-    /// committee). See `light_client_transactions.rs`.
+    /// committee).
     SubmitBeaconUpdate(SubmitBeaconUpdateTx),
 
     /// Promote an already-stored block update to a higher authentication status
     /// by re-verifying its carried historical proof against the now-advanced
     /// in-consensus anchor. Permissionless + self-authenticating (validity = the
     /// proof chains the block's *stored* roots into a tracked anchor's beacon
-    /// state). See `indexed_data_handler::promotion`.
+    /// state).
     PromoteBlock(PromoteBlockTx),
 
     /// Complete a deferred-completeness block: re-run the anti-censorship
     /// completeness check on the already-stored submission against the
     /// now-advanced in-consensus anchor, flipping it to `Verified`.
     /// Permissionless + self-authenticating (validity = the carried proof + the
-    /// stored submission verify against a tracked anchor). See
-    /// `indexed_data_handler::completeness::complete_block`.
+    /// stored submission verify against a tracked anchor).
     CompleteBlock(CompleteBlockTx),
 
     /// Reclaim a completeness bond stranded on a reorg-orphaned block: release
@@ -184,8 +182,7 @@ pub enum Transaction {
     /// at the bonded block's number has a different hash than the stored
     /// submission. Permissionless + self-authenticating (validity = the proof
     /// chains the canonical block into the in-consensus finalized anchor and its
-    /// hash differs from the stored one). See
-    /// `indexed_data_handler::bond::reclaim_completeness_bond`.
+    /// hash differs from the stored one).
     ReclaimCompletenessBond(ReclaimCompletenessBondTx),
 
     /// Replace an already-registered subgrove's manifest/config in place:
@@ -387,7 +384,7 @@ pub const MAX_SUBGROVE_ADMINS: usize = 32;
 pub const MAX_WASM_MODULES_PER_SUBGROVE: usize = 8;
 pub const MAX_WASM_MODULE_BYTES: usize = 5 * 1024 * 1024;
 /// A WASM module's name is a key in its subgrove's `wasm` tree (grovedb-merk 3.1.0 mis-encodes a
-/// key of 256 bytes or more). Applied by CheckTx and by block execution.
+/// key of 256 bytes or more). Applied by CheckTx, and in blocks from the node's activation height.
 pub const MAX_WASM_MODULE_NAME_LEN: usize = 128;
 
 /// Required prefix for every DID in Willow's identity system. Validators

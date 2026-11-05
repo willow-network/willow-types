@@ -1,5 +1,4 @@
-//! Disk-cache container + path rule for per-block completeness proofs (pilot
-//! part 2, B2).
+//! Disk-cache container + path rule for per-block completeness proofs.
 //!
 //! The window backfill driver (indexer-node) writes one
 //! [`CachedCompletenessProof`] per proof-bearing block as it proves; the

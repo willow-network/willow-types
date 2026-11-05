@@ -115,18 +115,16 @@ pub struct SubgroveRegistration {
     /// When `true`, the indexer is expected to prove + fold + ship
     /// the receipts-trie proof for every block submission, and
     /// validators verify it against the trusted `receipts_root`
-    /// (replacing #486's native-trie reconstruction for this
+    /// (replacing the native-trie reconstruction for this
     /// subgrove). When `false` (the default), submissions take the
-    /// validator-trust path from #486 unchanged — the indexer can
+    /// validator-trust path unchanged — the indexer can
     /// leave `receipts_root_proof = None` and validators rebuild
     /// the trie natively.
     ///
     /// Opt-in is a deliberate choice because the per-block prove
-    /// cost (~5-10 s after the compile cache from #498) is meaningful;
+    /// cost (~5-10 s with a warm compile cache) is meaningful;
     /// subgroves that prioritize latency over browser-trustless
-    /// soundness stay on the cheap path. See
-    /// `docs/todo/proposal-receipts-trie-completeness.md` for the
-    /// soundness story.
+    /// soundness stay on the cheap path.
     #[serde(default)]
     pub cryptographic_completeness: bool,
     /// Unix timestamp of creation.
