@@ -1,8 +1,8 @@
 //! Disk-cache container + path rule for per-block completeness proofs.
 //!
-//! The window backfill driver (indexer-node) writes one
+//! The indexer's window backfill writes one
 //! [`CachedCompletenessProof`] per proof-bearing block as it proves; the
-//! api-server `/completeness/{subgrove}/{block}` reader serves it back for a
+//! API's `/completeness/{subgrove}/{block}` route serves it back for a
 //! client to RE-VERIFY against the block's authenticated `receipts_root`. The
 //! server never interprets the proof — it stores and serves the exact bytes.
 //!
@@ -23,7 +23,7 @@ use super::consensus_submitter::HistoricalHeaderProof;
 /// file at [`completeness_cache_file_path`].
 ///
 /// The auth fields are primitive (not the consensus `StoredBlockAuth` struct)
-/// so the cache stays decoupled from the consensus crate — the api-server
+/// so the cache stays decoupled from consensus code — the API's
 /// reader depends only on `willow-types`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CachedCompletenessProof {
@@ -55,7 +55,7 @@ pub struct CachedCompletenessProof {
 
 /// Deterministic cache file path: `{cache_dir}/{subgrove}/{filter_hash_hex}/{block}.bin`.
 ///
-/// The SINGLE path rule shared by the indexer-node writer and the api-server
+/// The SINGLE path rule shared by the indexer's writer and the API's
 /// reader. `filter_hash` is lowercase-hex (64 chars); `block` is decimal. A
 /// different `filter_hash` yields a different directory, so a proof can never
 /// bleed across filters.

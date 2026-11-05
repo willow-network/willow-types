@@ -1520,7 +1520,7 @@ pub struct CoverageAttestation {
 /// Top-level GroveDb tree the coverage attestations live under. This is the
 /// SAME GroveDb whose root becomes the CometBFT `app_hash`, so a single-key
 /// proof of an attestation roots to the committed app_hash. Shared between the
-/// consensus writer and the api-server reader so both derive an identical path.
+/// consensus writer and the API's reader so both derive an identical path.
 pub const COVERAGE_ATTESTATION_ROOT_TREE: &[u8] = b"indexed_data";
 /// Sub-tree (under [`COVERAGE_ATTESTATION_ROOT_TREE`]) holding one child tree
 /// per subgrove, each keyed by [`coverage_attestation_key`].
